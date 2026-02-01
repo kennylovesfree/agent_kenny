@@ -1,0 +1,20 @@
+{
+  "as_of": "2026-01-27",
+  "holdings": [
+    { "asset": "US_EQUITY", "weight": 0.55 },
+    { "asset": "INTL_EQUITY", "weight": 0.20 },
+    { "asset": "BONDS", "weight": 0.20 },
+    { "asset": "CASH", "weight": 0.05 }
+  ],
+  "target_allocation": [
+    { "asset": "US_EQUITY", "weight": 0.50 },
+    { "asset": "INTL_EQUITY", "weight": 0.25 },
+    { "asset": "BONDS", "weight": 0.20 },
+    { "asset": "CASH", "weight": 0.05 }
+  ],
+  "constraints": {
+    "max_single_asset_pct": 0.60,
+    "max_equity_pct": 0.75,
+    "no_leverage": true
+  }
+}

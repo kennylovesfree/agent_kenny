@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-01-27T10:00:00Z",
+  "input_snapshot": {
+    "holdings": [
+      { "asset": "US_EQUITY", "weight": 0.55 },
+      { "asset": "INTL_EQUITY", "weight": 0.20 },
+      { "asset": "BONDS", "weight": 0.20 },
+      { "asset": "CASH", "weight": 0.05 }
+    ],
+    "target_allocation": [
+      { "asset": "US_EQUITY", "weight": 0.50 },
+      { "asset": "INTL_EQUITY", "weight": 0.25 },
+      { "asset": "BONDS", "weight": 0.20 },
+      { "asset": "CASH", "weight": 0.05 }
+    ],
+    "constraints": {
+      "max_single_asset_pct": 0.60,
+      "max_equity_pct": 0.75,
+      "no_leverage": true
+    }
+  },
+  "policy_results": {
+    "passed": true,
+    "triggered_rules": [],
+    "review_flags": []
+  },
+  "agent_reasoning": [
+    "Computed drift between current and target allocations.",
+    "No policy violations detected.",
+    "Generated textual proposals for human review only."
+  ],
+  "human_approval": {
+    "status": "PENDING",
+    "reviewer": "",
+    "notes": ""
+  }
+}

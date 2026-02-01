@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rebalance Copilot — Demo</title>
+  <style>
+    :root {
+      --bg: #0f1016;
+      --panel: #1a1c26;
+      --panel-2: #151824;
+      --text: #e7e9f0;
+      --muted: #a6abc0;
+      --accent: #ffb703;
+      --good: #7bd88f;
+      --warn: #f77f00;
+      --bad: #ef476f;
+      --grid: rgba(255, 255, 255, 0.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", "Avenir Next", system-ui, sans-serif;
+      background: radial-gradient(1000px 600px at 15% 15%, #1f2340, transparent),
+                  radial-gradient(800px 500px at 85% 10%, #30203d, transparent),
+                  linear-gradient(160deg, var(--bg), #14192b);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 24px 28px 8px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(26px, 4vw, 42px);
+    }
+
+    .subtitle {
+      color: var(--muted);
+      max-width: 760px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(260px, 360px) minmax(320px, 1fr) minmax(260px, 360px);
+      gap: 18px;
+      padding: 18px 28px 32px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      letter-spacing: 0.5px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--muted);
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      background: var(--panel-2);
+      border-radius: 12px;
+    }
+
+    .row strong { color: var(--accent); }
+
+    .workflow {
+      display: grid;
+      gap: 12px;
+    }
+
+    .step {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 12px;
+      background: #111521;
+    }
+
+    .step-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .status {
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+    }
+
+    .status.good { color: var(--good); background: rgba(123, 216, 143, 0.15); }
+    .status.warn { color: var(--warn); background: rgba(247, 127, 0, 0.15); }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      background: var(--accent);
+      color: #1d1500;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(255, 183, 3, 0.25); }
+
+    pre {
+      background: #0f1220;
+      border-radius: 12px;
+      padding: 12px;
+      overflow: auto;
+      font-size: 12px;
+      color: #cbd3ff;
+    }
+
+    .muted { color: var(--muted); font-size: 13px; }
+
+    .proposals {
+      display: grid;
+      gap: 10px;
+    }
+
+    .proposal {
+      background: #0f1324;
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .footer-note {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 12px;
+    }
+
+    @media (max-width: 960px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="badge">Demo • Human-in-the-loop</span>
+    <h1>Rebalance Copilot</h1>
+    <div class="subtitle">
+      Controlled, auditable workflow for portfolio rebalancing proposals. This demo uses mock data only and does not provide investment advice.
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>Mock Portfolio</h2>
+      <div class="list" id="holdings"></div>
+
+      <h2 style="margin-top:16px;">Target Allocation</h2>
+      <div class="list" id="targets"></div>
+
+      <h2 style="margin-top:16px;">Constraints</h2>
+      <div class="list" id="constraints"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Workflow</h2>
+      <div class="workflow">
+        <div class="step">
+          <div class="step-title">
+            <strong>Drift Calculation</strong>
+            <span class="status" id="status-drift">Idle</span>
+          </div>
+          <div class="muted">Pure calculation of current vs target weights.</div>
+        </div>
+        <div class="step">
+          <div class="step-title">
+            <strong>Policy Checks</strong>
+            <span class="status" id="status-policy">Idle</span>
+          </div>
+          <div class="muted">Rule-based gates only. Uncertainty escalates to Needs Human Review.</div>
+        </div>
+        <div class="step">
+          <div class="step-title">
+            <strong>Proposal Generator</strong>
+            <span class="status" id="status-proposals">Idle</span>
+          </div>
+          <div class="muted">Text-only proposals for human review.</div>
+        </div>
+        <div class="step">
+          <div class="step-title">
+            <strong>Human Approval</strong>
+            <span class="status warn" id="status-human">Pending</span>
+          </div>
+          <div class="muted">Human must approve, reject, or override.</div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px; display:flex; gap:10px; align-items:center;">
+        <button id="runBtn">Run Demo</button>
+        <span class="muted" id="runHint">No execution occurs. This only simulates output.</span>
+      </div>
+
+      <div style="margin-top:16px;">
+        <h2>Audit Log Snapshot</h2>
+        <pre id="audit"></pre>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Proposals</h2>
+      <div class="proposals" id="proposals"></div>
+      <div class="footer-note">
+        All proposals are informational. Final decisions belong to humans.
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const mockData = {
+      as_of: "2026-01-27",
+      holdings: [
+        { asset: "US_EQUITY", weight: 0.55 },
+        { asset: "INTL_EQUITY", weight: 0.20 },
+        { asset: "BONDS", weight: 0.20 },
+        { asset: "CASH", weight: 0.05 }
+      ],
+      target_allocation: [
+        { asset: "US_EQUITY", weight: 0.50 },
+        { asset: "INTL_EQUITY", weight: 0.25 },
+        { asset: "BONDS", weight: 0.20 },
+        { asset: "CASH", weight: 0.05 }
+      ],
+      constraints: {
+        max_single_asset_pct: 0.60,
+        max_equity_pct: 0.75,
+        no_leverage: true
+      }
+    };
+
+    const holdingsEl = document.getElementById('holdings');
+    const targetsEl = document.getElementById('targets');
+    const constraintsEl = document.getElementById('constraints');
+    const proposalsEl = document.getElementById('proposals');
+    const auditEl = document.getElementById('audit');
+
+    const statusDrift = document.getElementById('status-drift');
+    const statusPolicy = document.getElementById('status-policy');
+    const statusProposals = document.getElementById('status-proposals');
+    const statusHuman = document.getElementById('status-human');
+
+    function renderList(container, items, formatter) {
+      container.innerHTML = '';
+      items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = formatter(item);
+        container.appendChild(row);
+      });
+    }
+
+    function renderConstraints(constraints) {
+      constraintsEl.innerHTML = '';
+      Object.entries(constraints).forEach(([key, value]) => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `<span>${key}</span><strong>${value}</strong>`;
+        constraintsEl.appendChild(row);
+      });
+    }
+
+    function calculateDrift(holdings, targets) {
+      const current = Object.fromEntries(holdings.map(h => [h.asset, h.weight]));
+      const target = Object.fromEntries(targets.map(t => [t.asset, t.weight]));
+      const assets = Array.from(new Set([...Object.keys(current), ...Object.keys(target)])).sort();
+      const drift = {};
+      assets.forEach(asset => {
+        const cur = current[asset] || 0;
+        const tgt = target[asset] || 0;
+        drift[asset] = { current: cur, target: tgt, drift: cur - tgt };
+      });
+      return drift;
+    }
+
+    function checkPolicies(holdings, constraints) {
+      const triggered = [];
+      const reviewFlags = [];
+
+      if (constraints.no_leverage === false) {
+        triggered.push('RULE_LEVERAGE_NOT_ALLOWED');
+      }
+
+      holdings.forEach(h => {
+        if (h.weight > constraints.max_single_asset_pct) {
+          triggered.push('RULE_MAX_SINGLE_ASSET');
+        }
+      });
+
+      const equity = holdings
+        .filter(h => ['US_EQUITY', 'INTL_EQUITY'].includes(h.asset))
+        .reduce((sum, h) => sum + h.weight, 0);
+      if (equity > constraints.max_equity_pct) {
+        triggered.push('RULE_MAX_EQUITY');
+      }
+
+      if (constraints.max_single_asset_pct == null || constraints.max_equity_pct == null) {
+        reviewFlags.push('Needs Human Review: missing constraints');
+      }
+
+      return {
+        passed: triggered.length === 0,
+        triggered_rules: triggered,
+        review_flags: reviewFlags
+      };
+    }
+
+    function generateProposals(drift, reviewFlags) {
+      const proposals = [];
+      const entries = Object.entries(drift);
+      const largestOver = entries.reduce((a, b) => (a[1].drift > b[1].drift ? a : b));
+      if (largestOver[1].drift > 0) {
+        proposals.push(
+          `Option A: Consider reducing ${largestOver[0]} exposure (current ${largestOver[1].current.toFixed(2)} vs target ${largestOver[1].target.toFixed(2)}).`
+        );
+      }
+      const largestUnder = entries.reduce((a, b) => (a[1].drift < b[1].drift ? a : b));
+      if (largestUnder[1].drift < 0) {
+        proposals.push(
+          `Option B: Consider increasing ${largestUnder[0]} exposure (current ${largestUnder[1].current.toFixed(2)} vs target ${largestUnder[1].target.toFixed(2)}).`
+        );
+      }
+      proposals.push('Option C: Hold current allocation; review later with human approval.');
+
+      if (reviewFlags.length) {
+        proposals.unshift(`Needs Human Review: ${reviewFlags.join('; ')}`);
+      }
+      return proposals;
+    }
+
+    function renderProposals(list) {
+      proposalsEl.innerHTML = '';
+      list.forEach(text => {
+        const card = document.createElement('div');
+        card.className = 'proposal';
+        card.textContent = text;
+        proposalsEl.appendChild(card);
+      });
+    }
+
+    function runDemo() {
+      statusDrift.textContent = 'Done';
+      statusDrift.className = 'status good';
+
+      const drift = calculateDrift(mockData.holdings, mockData.target_allocation);
+      const policy = checkPolicies(mockData.holdings, mockData.constraints);
+
+      statusPolicy.textContent = policy.passed ? 'Passed' : 'Flagged';
+      statusPolicy.className = policy.passed ? 'status good' : 'status warn';
+
+      const proposals = generateProposals(drift, policy.review_flags);
+      statusProposals.textContent = 'Generated';
+      statusProposals.className = 'status good';
+
+      statusHuman.textContent = 'Pending';
+      statusHuman.className = 'status warn';
+
+      renderProposals(proposals);
+
+      const audit = {
+        input_snapshot: mockData,
+        policy_results: policy,
+        agent_reasoning: [
+          'Computed drift between current and target allocations.',
+          'Applied policy gates to constraints.',
+          'Generated text-only proposals for human review.'
+        ],
+        human_approval: {
+          status: 'PENDING',
+          reviewer: '',
+          notes: ''
+        }
+      };
+      auditEl.textContent = JSON.stringify(audit, null, 2);
+    }
+
+    function init() {
+      renderList(holdingsEl, mockData.holdings, (h) => `<span>${h.asset}</span><strong>${h.weight.toFixed(2)}</strong>`);
+      renderList(targetsEl, mockData.target_allocation, (t) => `<span>${t.asset}</span><strong>${t.weight.toFixed(2)}</strong>`);
+      renderConstraints(mockData.constraints);
+      auditEl.textContent = '{\n  "note": "Click Run Demo to generate audit log."\n}';
+    }
+
+    document.getElementById('runBtn').addEventListener('click', runDemo);
+    init();
+  </script>
+</body>
+</html>
