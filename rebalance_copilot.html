@@ -1,424 +1,822 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rebalance Copilot — Demo</title>
+  <title>Rebalance Copilot | 智能資產配置預估</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@300;400;600;700&display=swap');
+
     :root {
-      --bg: #0f1016;
-      --panel: #1a1c26;
-      --panel-2: #151824;
-      --text: #e7e9f0;
-      --muted: #a6abc0;
-      --accent: #ffb703;
+      --bg-0: #0b1118;
+      --bg-1: #0f1a26;
+      --bg-2: #102433;
+      --card: rgba(255, 255, 255, 0.06);
+      --card-strong: rgba(255, 255, 255, 0.12);
+      --line: rgba(255, 255, 255, 0.12);
+      --ink: #e8eef6;
+      --muted: rgba(232, 238, 246, 0.65);
+      --accent: #f0c86a;
+      --accent-2: #5fd6c2;
+      --accent-3: #87a9ff;
       --good: #7bd88f;
-      --warn: #f77f00;
-      --bad: #ef476f;
-      --grid: rgba(255, 255, 255, 0.06);
+      --shadow: 0 26px 70px rgba(4, 10, 20, 0.6);
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      font-family: "Space Grotesk", "Avenir Next", system-ui, sans-serif;
-      background: radial-gradient(1000px 600px at 15% 15%, #1f2340, transparent),
-                  radial-gradient(800px 500px at 85% 10%, #30203d, transparent),
-                  linear-gradient(160deg, var(--bg), #14192b);
-      color: var(--text);
+      font-family: "Manrope", "Avenir Next", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 800px at 5% 5%, rgba(135, 169, 255, 0.18), transparent 60%),
+        radial-gradient(900px 600px at 95% 10%, rgba(95, 214, 194, 0.16), transparent 65%),
+        linear-gradient(160deg, var(--bg-0), var(--bg-1) 45%, var(--bg-2));
       min-height: 100vh;
     }
 
+    a { color: inherit; text-decoration: none; }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .orb {
+      position: absolute;
+      border-radius: 999px;
+      opacity: 0.6;
+      mix-blend-mode: screen;
+      animation: drift 14s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .orb.one {
+      width: 240px;
+      height: 240px;
+      background: radial-gradient(circle at 30% 30%, rgba(135, 169, 255, 0.7), transparent 70%);
+      top: -90px;
+      right: -40px;
+    }
+
+    .orb.two {
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle at 40% 40%, rgba(240, 200, 106, 0.5), transparent 70%);
+      bottom: -150px;
+      left: -80px;
+      animation-delay: -6s;
+    }
+
+    @keyframes drift {
+      0%, 100% { transform: translateY(0) translateX(0); }
+      50% { transform: translateY(18px) translateX(-10px); }
+    }
+
     header {
-      padding: 24px 28px 8px;
+      padding: 28px clamp(18px, 4vw, 60px) 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .brand-mark {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(140deg, var(--accent), var(--accent-3));
+      display: grid;
+      place-items: center;
+      color: #0d1218;
+      font-weight: 800;
+      box-shadow: 0 12px 30px rgba(124, 156, 255, 0.35);
+    }
+
+    .hero {
+      padding: 18px clamp(18px, 4vw, 60px) 8px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(240, 200, 106, 0.35);
+      color: var(--accent);
+      font-size: 13px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      width: fit-content;
     }
 
     h1 {
-      margin: 0 0 8px;
-      font-size: clamp(26px, 4vw, 42px);
+      font-family: "Cormorant Garamond", serif;
+      font-size: clamp(34px, 4vw, 56px);
+      line-height: 1.05;
+      margin: 8px 0 0;
     }
 
     .subtitle {
       color: var(--muted);
       max-width: 760px;
+      line-height: 1.7;
     }
 
     main {
+      padding: 18px clamp(18px, 4vw, 60px) 60px;
       display: grid;
-      grid-template-columns: minmax(260px, 360px) minmax(320px, 1fr) minmax(260px, 360px);
-      gap: 18px;
-      padding: 18px 28px 32px;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      gap: 24px;
     }
 
-    .panel {
-      background: var(--panel);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 18px;
-      padding: 18px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: var(--shadow);
     }
 
-    .panel h2 {
-      margin: 0 0 12px;
+    .card h2 {
+      margin: 0 0 14px;
       font-size: 18px;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
     }
 
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      background: rgba(255, 255, 255, 0.12);
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
       color: var(--muted);
-    }
-
-    .list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 12px;
-      background: var(--panel-2);
-      border-radius: 12px;
-    }
-
-    .row strong { color: var(--accent); }
-
-    .workflow {
-      display: grid;
-      gap: 12px;
-    }
-
-    .step {
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 14px;
-      padding: 12px;
-      background: #111521;
-    }
-
-    .step-title {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
       margin-bottom: 6px;
     }
 
-    .status {
-      font-size: 12px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--muted);
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      background: rgba(7, 12, 20, 0.65);
+      color: var(--ink);
+      font-size: 14px;
+      outline: none;
     }
 
-    .status.good { color: var(--good); background: rgba(123, 216, 143, 0.15); }
-    .status.warn { color: var(--warn); background: rgba(247, 127, 0, 0.15); }
+    input:focus, select:focus {
+      border-color: rgba(135, 169, 255, 0.7);
+      box-shadow: 0 0 0 2px rgba(135, 169, 255, 0.2);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .row.tight {
+      grid-template-columns: 1fr 120px;
+      align-items: center;
+    }
+
+    .range-wrap {
+      display: grid;
+      gap: 6px;
+    }
+
+    input[type="range"] {
+      accent-color: var(--accent-2);
+      height: 4px;
+      padding: 0;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
 
     button {
       border: none;
       border-radius: 999px;
-      padding: 10px 16px;
+      padding: 12px 20px;
       font-size: 14px;
       font-weight: 700;
       cursor: pointer;
-      background: var(--accent);
+      background: linear-gradient(140deg, var(--accent), #f6dda1);
       color: #1d1500;
       transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
 
-    button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(255, 183, 3, 0.25); }
+    button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(240, 200, 106, 0.25); }
 
-    pre {
-      background: #0f1220;
-      border-radius: 12px;
-      padding: 12px;
-      overflow: auto;
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
       font-size: 12px;
-      color: #cbd3ff;
+      color: var(--muted);
     }
 
-    .muted { color: var(--muted); font-size: 13px; }
+    .stats {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+    }
 
-    .proposals {
+    .stat {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(10, 16, 26, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .stat strong { color: var(--accent); font-size: 18px; }
+
+    .chart {
+      height: 260px;
+      border-radius: 18px;
+      background:
+        linear-gradient(120deg, rgba(135, 169, 255, 0.16), rgba(95, 214, 194, 0.08)),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 48px),
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 48px);
+      border: 1px solid var(--line);
+      position: relative;
+      overflow: hidden;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+      margin-top: 12px;
+    }
+
+    .table {
       display: grid;
       gap: 10px;
     }
 
-    .proposal {
-      background: #0f1324;
-      border-radius: 12px;
-      padding: 10px 12px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+    .table-head, .table-row {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr 70px;
+      gap: 10px;
+      align-items: center;
     }
 
-    .footer-note {
+    .table-head {
       font-size: 12px;
       color: var(--muted);
-      margin-top: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
-    @media (max-width: 960px) {
+    .table-row button {
+      padding: 8px 10px;
+      font-size: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--ink);
+    }
+
+    footer {
+      padding: 18px clamp(18px, 4vw, 60px) 36px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 980px) {
       main { grid-template-columns: 1fr; }
+      .row { grid-template-columns: 1fr; }
+      header { flex-direction: column; align-items: flex-start; }
+      .table-head, .table-row { grid-template-columns: 1fr; }
+      .table-row button { width: 100%; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <span class="badge">Demo • Human-in-the-loop</span>
-    <h1>Rebalance Copilot</h1>
-    <div class="subtitle">
-      Controlled, auditable workflow for portfolio rebalancing proposals. This demo uses mock data only and does not provide investment advice.
-    </div>
-  </header>
+  <div class="page">
+    <div class="orb one"></div>
+    <div class="orb two"></div>
 
-  <main>
-    <section class="panel">
-      <h2>Mock Portfolio</h2>
-      <div class="list" id="holdings"></div>
+    <header>
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div>Rebalance Copilot</div>
+      </div>
+      <span class="chip" id="universeLabel">Universe: 5000 tickers (demo)</span>
+    </header>
 
-      <h2 style="margin-top:16px;">Target Allocation</h2>
-      <div class="list" id="targets"></div>
-
-      <h2 style="margin-top:16px;">Constraints</h2>
-      <div class="list" id="constraints"></div>
+    <section class="hero">
+      <span class="eyebrow">Portfolio Forecast Studio</span>
+      <h1>輸入多檔美股代碼，快速預估年化收益、波動率與資產成長曲線。</h1>
+      <p class="subtitle">此頁面為示範模型，提供預期年化報酬與資產累積趨勢。回測與未來績效皆非保證，請勿視為投資建議。</p>
     </section>
 
-    <section class="panel">
-      <h2>Workflow</h2>
-      <div class="workflow">
-        <div class="step">
-          <div class="step-title">
-            <strong>Drift Calculation</strong>
-            <span class="status" id="status-drift">Idle</span>
+    <main>
+      <section class="card">
+        <h2>投資條件輸入</h2>
+        <div class="grid">
+          <div class="table">
+            <div class="table-head">
+              <div>美股代碼</div>
+              <div>金額</div>
+              <div>幣種</div>
+              <div></div>
+            </div>
+            <div id="rows"></div>
           </div>
-          <div class="muted">Pure calculation of current vs target weights.</div>
-        </div>
-        <div class="step">
-          <div class="step-title">
-            <strong>Policy Checks</strong>
-            <span class="status" id="status-policy">Idle</span>
+          <div class="actions">
+            <button id="addRow">新增標的</button>
+            <span class="chip">最多 10 檔</span>
           </div>
-          <div class="muted">Rule-based gates only. Uncertainty escalates to Needs Human Review.</div>
-        </div>
-        <div class="step">
-          <div class="step-title">
-            <strong>Proposal Generator</strong>
-            <span class="status" id="status-proposals">Idle</span>
+          <div class="row">
+            <div>
+              <label for="years">投資期限（1 - 30 年）</label>
+              <input id="years" type="range" min="1" max="30" value="10" />
+            </div>
+            <div>
+              <label for="yearsNumber">年數</label>
+              <input id="yearsNumber" type="number" min="1" max="30" value="10" />
+            </div>
           </div>
-          <div class="muted">Text-only proposals for human review.</div>
-        </div>
-        <div class="step">
-          <div class="step-title">
-            <strong>Human Approval</strong>
-            <span class="status warn" id="status-human">Pending</span>
+          <div class="row">
+            <div>
+              <label for="displayCurrency">報表幣種</label>
+              <select id="displayCurrency">
+                <option value="USD" selected>USD 美元</option>
+                <option value="TWD">TWD 台幣</option>
+                <option value="HKD">HKD 港幣</option>
+                <option value="JPY">JPY 日圓</option>
+                <option value="CNY">CNY 人民幣</option>
+                <option value="EUR">EUR 歐元</option>
+              </select>
+            </div>
+            <div>
+              <label for="override">手動調整年化報酬（%）</label>
+              <input id="override" type="number" min="1" max="20" step="0.1" value="8.0" disabled />
+            </div>
           </div>
-          <div class="muted">Human must approve, reject, or override.</div>
+          <div class="actions">
+            <button id="calcBtn">更新預估結果</button>
+            <label class="chip" style="cursor:pointer;">
+              <input id="overrideToggle" type="checkbox" style="margin:0;" />
+              使用手動年化報酬
+            </label>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div style="margin-top:16px; display:flex; gap:10px; align-items:center;">
-        <button id="runBtn">Run Demo</button>
-        <span class="muted" id="runHint">No execution occurs. This only simulates output.</span>
-      </div>
+      <section class="card">
+        <h2>預估輸出</h2>
+        <div class="stats">
+          <div class="stat">
+            <span>預期年化收益率</span>
+            <strong id="outputRate">--</strong>
+          </div>
+          <div class="stat">
+            <span>年化波動率</span>
+            <strong id="outputVol">--</strong>
+          </div>
+          <div class="stat">
+            <span>最大回撤（模擬）</span>
+            <strong id="outputDD">--</strong>
+          </div>
+          <div class="stat">
+            <span>期末資產總額</span>
+            <strong id="outputTotal">--</strong>
+          </div>
+          <div class="stat">
+            <span>累積收益</span>
+            <strong id="outputGain">--</strong>
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="chart">
+            <canvas id="trend"></canvas>
+          </div>
+        </div>
+        <div class="note" id="assumptionNote"></div>
+      </section>
 
-      <div style="margin-top:16px;">
-        <h2>Audit Log Snapshot</h2>
-        <pre id="audit"></pre>
-      </div>
-    </section>
+      <section class="card">
+        <h2>專家建議（個性化）</h2>
+        <div class="note" id="expertAdvice"></div>
+      </section>
+    </main>
 
-    <section class="panel">
-      <h2>Proposals</h2>
-      <div class="proposals" id="proposals"></div>
-      <div class="footer-note">
-        All proposals are informational. Final decisions belong to humans.
-      </div>
-    </section>
-  </main>
+    <footer>
+      示範模型：5000 檔代碼為合成清單 + 部分常見標的，報酬/波動/匯率皆為示範用途，未連接即時行情。
+    </footer>
+  </div>
 
   <script>
-    const mockData = {
-      as_of: "2026-01-27",
-      holdings: [
-        { asset: "US_EQUITY", weight: 0.55 },
-        { asset: "INTL_EQUITY", weight: 0.20 },
-        { asset: "BONDS", weight: 0.20 },
-        { asset: "CASH", weight: 0.05 }
-      ],
-      target_allocation: [
-        { asset: "US_EQUITY", weight: 0.50 },
-        { asset: "INTL_EQUITY", weight: 0.25 },
-        { asset: "BONDS", weight: 0.20 },
-        { asset: "CASH", weight: 0.05 }
-      ],
-      constraints: {
-        max_single_asset_pct: 0.60,
-        max_equity_pct: 0.75,
-        no_leverage: true
-      }
+    const KNOWN_TICKERS = [
+      'AAPL','MSFT','NVDA','AMZN','META','GOOGL','GOOG','TSLA','BRK.B','AVGO','LLY','V','JPM','UNH','XOM',
+      'MA','COST','PG','HD','MRK','ORCL','BAC','ABBV','NFLX','ADBE','CRM','PEP','KO','TMO','NKE','WMT',
+      'DIS','INTC','AMD','CSCO','QCOM','TXN','IBM','AMAT','VZ','T','SPY','VOO','QQQ','VTI','IWM','DIA'
+    ];
+
+    const FX_RATES = {
+      USD: 1,
+      TWD: 0.032,
+      HKD: 0.128,
+      JPY: 0.0068,
+      CNY: 0.14,
+      EUR: 1.08
     };
 
-    const holdingsEl = document.getElementById('holdings');
-    const targetsEl = document.getElementById('targets');
-    const constraintsEl = document.getElementById('constraints');
-    const proposalsEl = document.getElementById('proposals');
-    const auditEl = document.getElementById('audit');
+    const rowsEl = document.getElementById('rows');
+    const yearsEl = document.getElementById('years');
+    const yearsNumberEl = document.getElementById('yearsNumber');
+    const displayCurrencyEl = document.getElementById('displayCurrency');
+    const overrideEl = document.getElementById('override');
+    const overrideToggleEl = document.getElementById('overrideToggle');
 
-    const statusDrift = document.getElementById('status-drift');
-    const statusPolicy = document.getElementById('status-policy');
-    const statusProposals = document.getElementById('status-proposals');
-    const statusHuman = document.getElementById('status-human');
+    const outputRateEl = document.getElementById('outputRate');
+    const outputVolEl = document.getElementById('outputVol');
+    const outputDDEl = document.getElementById('outputDD');
+    const outputTotalEl = document.getElementById('outputTotal');
+    const outputGainEl = document.getElementById('outputGain');
+    const assumptionNoteEl = document.getElementById('assumptionNote');
+    const expertAdviceEl = document.getElementById('expertAdvice');
 
-    function renderList(container, items, formatter) {
-      container.innerHTML = '';
-      items.forEach(item => {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = formatter(item);
-        container.appendChild(row);
+    const canvas = document.getElementById('trend');
+    const ctx = canvas.getContext('2d');
+
+    function formatCurrency(value, currency) {
+      try {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency,
+          maximumFractionDigits: 0
+        }).format(value);
+      } catch (_) {
+        return `${value.toFixed(0)} ${currency}`;
+      }
+    }
+
+    function hashCode(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash);
+    }
+
+    function seededRandom(seed) {
+      const x = Math.sin(seed) * 10000;
+      return x - Math.floor(x);
+    }
+
+    function estimateReturnVol(ticker) {
+      const key = ticker.toUpperCase().trim();
+      const seed = hashCode(key);
+      const base = 0.04 + seededRandom(seed + 1) * 0.10; // 4% - 14%
+      const vol = 0.12 + seededRandom(seed + 2) * 0.23;  // 12% - 35%
+      return { expectedReturn: base, volatility: vol };
+    }
+
+    function generateUniverse() {
+      const set = new Set(KNOWN_TICKERS.map(t => t.toUpperCase()));
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      let i = 0;
+      while (set.size < 5000) {
+        const a = alphabet[Math.floor(i / (26 * 26)) % 26];
+        const b = alphabet[Math.floor(i / 26) % 26];
+        const c = alphabet[i % 26];
+        const ticker = `${a}${b}${c}`;
+        if (!set.has(ticker)) set.add(ticker);
+        i += 1;
+      }
+      return set;
+    }
+
+    const UNIVERSE = generateUniverse();
+
+    function createRow(ticker = '', amount = 0, currency = 'USD') {
+      const row = document.createElement('div');
+      row.className = 'table-row';
+      row.innerHTML = `
+        <input class="ticker" type="text" placeholder="例：AAPL" value="${ticker}" />
+        <input class="amount" type="number" min="0" step="100" value="${amount}" />
+        <select class="currency">
+          <option value="USD" ${currency === 'USD' ? 'selected' : ''}>USD</option>
+          <option value="TWD" ${currency === 'TWD' ? 'selected' : ''}>TWD</option>
+          <option value="HKD" ${currency === 'HKD' ? 'selected' : ''}>HKD</option>
+          <option value="JPY" ${currency === 'JPY' ? 'selected' : ''}>JPY</option>
+          <option value="CNY" ${currency === 'CNY' ? 'selected' : ''}>CNY</option>
+          <option value="EUR" ${currency === 'EUR' ? 'selected' : ''}>EUR</option>
+        </select>
+        <button type="button" class="remove">移除</button>
+      `;
+      row.querySelector('.remove').addEventListener('click', () => {
+        row.remove();
+        calculate();
       });
-    }
-
-    function renderConstraints(constraints) {
-      constraintsEl.innerHTML = '';
-      Object.entries(constraints).forEach(([key, value]) => {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `<span>${key}</span><strong>${value}</strong>`;
-        constraintsEl.appendChild(row);
+      row.querySelectorAll('input, select').forEach(el => {
+        el.addEventListener('input', calculate);
       });
+      return row;
     }
 
-    function calculateDrift(holdings, targets) {
-      const current = Object.fromEntries(holdings.map(h => [h.asset, h.weight]));
-      const target = Object.fromEntries(targets.map(t => [t.asset, t.weight]));
-      const assets = Array.from(new Set([...Object.keys(current), ...Object.keys(target)])).sort();
-      const drift = {};
-      assets.forEach(asset => {
-        const cur = current[asset] || 0;
-        const tgt = target[asset] || 0;
-        drift[asset] = { current: cur, target: tgt, drift: cur - tgt };
+    function addRow(ticker, amount, currency) {
+      if (rowsEl.children.length >= 10) return;
+      rowsEl.appendChild(createRow(ticker, amount, currency));
+    }
+
+    function getRows() {
+      const rows = Array.from(rowsEl.querySelectorAll('.table-row'));
+      return rows.map(row => {
+        const ticker = row.querySelector('.ticker').value.toUpperCase().trim();
+        const amount = Math.max(0, Number(row.querySelector('.amount').value || 0));
+        const currency = row.querySelector('.currency').value;
+        return { ticker, amount, currency };
+      }).filter(r => r.ticker || r.amount > 0);
+    }
+
+    function syncYearsFromRange() {
+      yearsNumberEl.value = yearsEl.value;
+    }
+
+    function syncYearsFromNumber() {
+      let val = Number(yearsNumberEl.value || 1);
+      if (val < 1) val = 1;
+      if (val > 30) val = 30;
+      yearsNumberEl.value = val;
+      yearsEl.value = val;
+    }
+
+    function drawChart(values) {
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      canvas.width = width;
+      canvas.height = height;
+      ctx.clearRect(0, 0, width, height);
+
+      const padding = 36;
+      const maxVal = Math.max(...values);
+      const minVal = Math.min(...values);
+      const range = maxVal - minVal || 1;
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padding, padding);
+      ctx.lineTo(padding, height - padding);
+      ctx.lineTo(width - padding, height - padding);
+      ctx.stroke();
+
+      const points = values.map((val, index) => {
+        const x = padding + (index / (values.length - 1)) * (width - padding * 2);
+        const y = height - padding - ((val - minVal) / range) * (height - padding * 2);
+        return { x, y, val };
       });
-      return drift;
+
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.strokeStyle = '#f0c86a';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      ctx.lineTo(points[points.length - 1].x, height - padding);
+      ctx.lineTo(points[0].x, height - padding);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(240, 200, 106, 0.12)';
+      ctx.fill();
+
+      const last = points[points.length - 1];
+      ctx.beginPath();
+      ctx.arc(last.x, last.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#f0c86a';
+      ctx.fill();
     }
 
-    function checkPolicies(holdings, constraints) {
-      const triggered = [];
-      const reviewFlags = [];
+    function randn() {
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
 
-      if (constraints.no_leverage === false) {
-        triggered.push('RULE_LEVERAGE_NOT_ALLOWED');
+    function simulatePath(initial, years, mu, sigma) {
+      const steps = Math.max(12, years * 12);
+      const dt = 1 / 12;
+      const values = [initial];
+      let current = initial;
+      for (let i = 0; i < steps; i++) {
+        const shock = randn();
+        const growth = (mu - 0.5 * sigma * sigma) * dt + sigma * Math.sqrt(dt) * shock;
+        current = Math.max(0, current * Math.exp(growth));
+        values.push(current);
+      }
+      return values;
+    }
+
+    function maxDrawdown(series) {
+      let peak = series[0];
+      let maxDD = 0;
+      series.forEach(val => {
+        if (val > peak) peak = val;
+        const dd = (peak - val) / peak;
+        if (dd > maxDD) maxDD = dd;
+      });
+      return maxDD;
+    }
+
+    function calculate() {
+      const years = Number(yearsEl.value || 1);
+      const displayCurrency = displayCurrencyEl.value;
+      const rows = getRows();
+
+      if (!rows.length) {
+        outputRateEl.textContent = '--';
+        outputVolEl.textContent = '--';
+        outputDDEl.textContent = '--';
+        outputTotalEl.textContent = '--';
+        outputGainEl.textContent = '--';
+        drawChart([0, 1]);
+        assumptionNoteEl.textContent = '請至少輸入一檔代碼與金額。';
+        expertAdviceEl.textContent = '';
+        return;
       }
 
-      holdings.forEach(h => {
-        if (h.weight > constraints.max_single_asset_pct) {
-          triggered.push('RULE_MAX_SINGLE_ASSET');
-        }
+      let totalUsd = 0;
+      const weights = [];
+      const details = [];
+
+      rows.forEach(row => {
+        const fx = FX_RATES[row.currency] || 1;
+        const amountUsd = row.amount * fx;
+        totalUsd += amountUsd;
+        const inUniverse = UNIVERSE.has(row.ticker);
+        const stats = estimateReturnVol(row.ticker || 'SPY');
+        details.push({ ...row, amountUsd, inUniverse, ...stats });
       });
 
-      const equity = holdings
-        .filter(h => ['US_EQUITY', 'INTL_EQUITY'].includes(h.asset))
-        .reduce((sum, h) => sum + h.weight, 0);
-      if (equity > constraints.max_equity_pct) {
-        triggered.push('RULE_MAX_EQUITY');
+      if (totalUsd === 0) {
+        outputRateEl.textContent = '--';
+        outputVolEl.textContent = '--';
+        outputDDEl.textContent = '--';
+        outputTotalEl.textContent = '--';
+        outputGainEl.textContent = '--';
+        drawChart([0, 1]);
+        assumptionNoteEl.textContent = '投資金額需大於 0。';
+        expertAdviceEl.textContent = '';
+        return;
       }
 
-      if (constraints.max_single_asset_pct == null || constraints.max_equity_pct == null) {
-        reviewFlags.push('Needs Human Review: missing constraints');
-      }
-
-      return {
-        passed: triggered.length === 0,
-        triggered_rules: triggered,
-        review_flags: reviewFlags
-      };
-    }
-
-    function generateProposals(drift, reviewFlags) {
-      const proposals = [];
-      const entries = Object.entries(drift);
-      const largestOver = entries.reduce((a, b) => (a[1].drift > b[1].drift ? a : b));
-      if (largestOver[1].drift > 0) {
-        proposals.push(
-          `Option A: Consider reducing ${largestOver[0]} exposure (current ${largestOver[1].current.toFixed(2)} vs target ${largestOver[1].target.toFixed(2)}).`
-        );
-      }
-      const largestUnder = entries.reduce((a, b) => (a[1].drift < b[1].drift ? a : b));
-      if (largestUnder[1].drift < 0) {
-        proposals.push(
-          `Option B: Consider increasing ${largestUnder[0]} exposure (current ${largestUnder[1].current.toFixed(2)} vs target ${largestUnder[1].target.toFixed(2)}).`
-        );
-      }
-      proposals.push('Option C: Hold current allocation; review later with human approval.');
-
-      if (reviewFlags.length) {
-        proposals.unshift(`Needs Human Review: ${reviewFlags.join('; ')}`);
-      }
-      return proposals;
-    }
-
-    function renderProposals(list) {
-      proposalsEl.innerHTML = '';
-      list.forEach(text => {
-        const card = document.createElement('div');
-        card.className = 'proposal';
-        card.textContent = text;
-        proposalsEl.appendChild(card);
+      details.forEach(item => {
+        const weight = item.amountUsd / totalUsd;
+        weights.push(weight);
       });
+
+      let weightedReturn = 0;
+      let weightedVar = 0;
+      details.forEach((item, i) => {
+        weightedReturn += weights[i] * item.expectedReturn;
+        weightedVar += Math.pow(weights[i] * item.volatility, 2);
+      });
+
+      let portfolioReturn = weightedReturn;
+      if (overrideToggleEl.checked) {
+        portfolioReturn = Math.max(0.01, Math.min(0.2, Number(overrideEl.value) / 100));
+      }
+
+      const portfolioVol = Math.sqrt(weightedVar) * 0.85;
+
+      const finalUsd = totalUsd * Math.pow(1 + portfolioReturn, years);
+      const gainUsd = finalUsd - totalUsd;
+
+      const fxOut = FX_RATES[displayCurrency] || 1;
+      const finalDisplay = finalUsd / fxOut;
+      const gainDisplay = gainUsd / fxOut;
+
+      outputRateEl.textContent = `${(portfolioReturn * 100).toFixed(2)}%`;
+      outputVolEl.textContent = `${(portfolioVol * 100).toFixed(2)}%`;
+
+      const path = simulatePath(totalUsd, years, portfolioReturn, portfolioVol);
+      const dd = maxDrawdown(path);
+      outputDDEl.textContent = `${(dd * 100).toFixed(2)}%`;
+
+      outputTotalEl.textContent = formatCurrency(finalDisplay, displayCurrency);
+      outputGainEl.textContent = formatCurrency(gainDisplay, displayCurrency);
+
+      const pathDisplay = path.map(v => v / fxOut);
+      drawChart(pathDisplay);
+
+      const missing = details.filter(d => d.ticker && !d.inUniverse).map(d => d.ticker);
+      const missingNote = missing.length ? `未在 demo 清單：${missing.join(', ')}` : '全部代碼已匹配 demo 清單。';
+      assumptionNoteEl.textContent = `估算依據：示範年化報酬/波動率 + 靜態匯率，${missingNote}`;
+
+      expertAdviceEl.textContent = generateAdvice(details, weights, years, portfolioReturn, portfolioVol, dd);
     }
 
-    function runDemo() {
-      statusDrift.textContent = 'Done';
-      statusDrift.className = 'status good';
+    function generateAdvice(details, weights, years, portfolioReturn, portfolioVol, dd) {
+      const count = details.length;
+      const topWeight = Math.max(...weights);
+      const topIndex = weights.indexOf(topWeight);
+      const topTicker = details[topIndex]?.ticker || '主要標的';
 
-      const drift = calculateDrift(mockData.holdings, mockData.target_allocation);
-      const policy = checkPolicies(mockData.holdings, mockData.constraints);
+      const horizonTag = years <= 3 ? '短期' : years <= 10 ? '中期' : '長期';
+      const volTag = portfolioVol >= 0.25 ? '高波動' : portfolioVol >= 0.18 ? '中高波動' : '中低波動';
+      const ddTag = dd >= 0.35 ? '回撤壓力偏高' : dd >= 0.2 ? '回撤中等' : '回撤可控';
 
-      statusPolicy.textContent = policy.passed ? 'Passed' : 'Flagged';
-      statusPolicy.className = policy.passed ? 'status good' : 'status warn';
+      const concentrationNote = topWeight >= 0.55
+        ? `目前配置集中於 ${topTicker}（占比約 ${(topWeight * 100).toFixed(0)}%），建議分散到 3–6 檔以降低單一事件風險。`
+        : topWeight >= 0.35
+          ? `單一標的 ${topTicker} 占比約 ${(topWeight * 100).toFixed(0)}%，可考慮加入不同風格/產業以平衡週期風險。`
+          : '配置集中度良好，單一標的占比控制在合理範圍內。';
 
-      const proposals = generateProposals(drift, policy.review_flags);
-      statusProposals.textContent = 'Generated';
-      statusProposals.className = 'status good';
+      const countNote = count <= 2
+        ? '標的數偏少，建議至少 4 檔以上，以降低非系統性風險。'
+        : count >= 8
+          ? '標的數充足，建議關注彼此相關性，避免過度重疊。'
+          : '標的數量適中，利於控制風險與管理成本。';
 
-      statusHuman.textContent = 'Pending';
-      statusHuman.className = 'status warn';
+      const horizonNote = years <= 3
+        ? '投資期限較短，建議提高現金或低波動資產比例以降低回撤影響。'
+        : years >= 15
+          ? '期限較長，可承受波動，重點在於維持紀律與定期再平衡。'
+          : '期限中等，建議保持成長/防禦資產的均衡配置。';
 
-      renderProposals(proposals);
+      const riskNote = portfolioVol >= 0.25
+        ? '整體波動偏高，建議加入低波動或防禦型資產以平滑曲線。'
+        : portfolioVol <= 0.14
+          ? '整體波動偏低，若目標為成長，可提高成長型資產比重。'
+          : '風險區間合理，重點在於保持配置一致性。';
 
-      const audit = {
-        input_snapshot: mockData,
-        policy_results: policy,
-        agent_reasoning: [
-          'Computed drift between current and target allocations.',
-          'Applied policy gates to constraints.',
-          'Generated text-only proposals for human review.'
-        ],
-        human_approval: {
-          status: 'PENDING',
-          reviewer: '',
-          notes: ''
-        }
-      };
-      auditEl.textContent = JSON.stringify(audit, null, 2);
+      const returnNote = portfolioReturn >= 0.1
+        ? '預期報酬偏積極，請確認風險承受度與波動心理準備。'
+        : portfolioReturn <= 0.06
+          ? '預期報酬偏保守，若目標為增長，可提高成長型資產比重。'
+          : '預期報酬落在中性區間，配置風格相對平衡。';
+
+      return `專家建議（個性化）：以 ${horizonTag} 投資期限與 ${volTag} 風險結構評估，當前組合呈現「${ddTag}」特徵。${concentrationNote} ${countNote} ${horizonNote} ${riskNote} ${returnNote}`;
     }
 
-    function init() {
-      renderList(holdingsEl, mockData.holdings, (h) => `<span>${h.asset}</span><strong>${h.weight.toFixed(2)}</strong>`);
-      renderList(targetsEl, mockData.target_allocation, (t) => `<span>${t.asset}</span><strong>${t.weight.toFixed(2)}</strong>`);
-      renderConstraints(mockData.constraints);
-      auditEl.textContent = '{\n  "note": "Click Run Demo to generate audit log."\n}';
-    }
+    yearsEl.addEventListener('input', () => {
+      syncYearsFromRange();
+      calculate();
+    });
 
-    document.getElementById('runBtn').addEventListener('click', runDemo);
-    init();
+    yearsNumberEl.addEventListener('input', () => {
+      syncYearsFromNumber();
+      calculate();
+    });
+
+    overrideToggleEl.addEventListener('change', () => {
+      overrideEl.disabled = !overrideToggleEl.checked;
+      calculate();
+    });
+
+    document.getElementById('calcBtn').addEventListener('click', calculate);
+    document.getElementById('addRow').addEventListener('click', () => {
+      addRow('', 0, 'USD');
+      calculate();
+    });
+
+    [displayCurrencyEl, overrideEl].forEach(el => {
+      el.addEventListener('input', calculate);
+    });
+
+    addRow('SPY', 8000, 'USD');
+    addRow('AAPL', 5000, 'USD');
+    addRow('TSLA', 3000, 'USD');
+    syncYearsFromRange();
+    calculate();
   </script>
 </body>
 </html>
