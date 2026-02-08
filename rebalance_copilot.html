@@ -322,6 +322,19 @@
       color: var(--ink);
     }
 
+    .ticker-cell {
+      display: grid;
+      gap: 4px;
+      align-content: start;
+    }
+
+    .ticker-error {
+      min-height: 16px;
+      font-size: 12px;
+      color: #ff8b8b;
+      line-height: 1.2;
+    }
+
     .expert-card {
       border: 1px solid rgba(240, 200, 106, 0.55);
       background:
@@ -627,7 +640,10 @@
       row.className = 'table-row';
       row.innerHTML = `
         <select class="market" disabled><option value="TW" selected>台股 TW</option></select>
-        <input class="ticker" type="text" placeholder="例：2330 或 台積電" value="${ticker}" />
+        <div class="ticker-cell">
+          <input class="ticker" type="text" placeholder="例：2330 或 台積電" value="${ticker}" />
+          <div class="ticker-error"></div>
+        </div>
         <input class="amount" type="number" min="0" step="100" value="${amount}" />
         <select class="currency"><option value="USD" ${currency === 'USD' ? 'selected' : ''}>USD</option><option value="TWD" ${currency === 'TWD' ? 'selected' : ''}>TWD</option><option value="HKD" ${currency === 'HKD' ? 'selected' : ''}>HKD</option><option value="JPY" ${currency === 'JPY' ? 'selected' : ''}>JPY</option><option value="CNY" ${currency === 'CNY' ? 'selected' : ''}>CNY</option><option value="EUR" ${currency === 'EUR' ? 'selected' : ''}>EUR</option></select>
         <button type="button" class="remove">移除</button>`;
@@ -664,6 +680,22 @@
         throw err;
       }
       return payload;
+    }
+
+    function setTickerError(rowEl, message = '') {
+      const errorEl = rowEl.querySelector('.ticker-error');
+      if (errorEl) errorEl.textContent = message || '';
+    }
+
+    function describeApiError(err) {
+      const code = err?.payload?.error_code || '';
+      if (code === 'STOCK_NOT_FOUND') return '查無此台股代碼或名稱。';
+      if (code === 'AMBIGUOUS_NAME') return '名稱對應多筆，請改用代碼。';
+      if (code === 'INVALID_QUERY') return '輸入格式不正確。';
+      if (code === 'NO_PRICE_DATA') return '查無可用價格資料。';
+      if (code === 'UPSTREAM_ERROR') return '行情服務暫時異常，請稍後再試。';
+      if (code === 'CONFIG_ERROR') return '後端尚未設定 API Token。';
+      return err?.payload?.message || err?.message || '查詢失敗，請稍後再試。';
     }
 
     function buildUserProfile() {
@@ -782,6 +814,7 @@
         const amountUsd = row.amount * fx;
         totalUsd += amountUsd;
         row.rowEl.querySelector('.ticker').style.borderColor = '';
+        setTickerError(row.rowEl, '');
         if (!row.normalizedTicker) {
           details.push({ ...row, amountUsd, expectedReturn: 0.01, volatility: 0.02, isCash: true });
           continue;
@@ -799,11 +832,13 @@
             isCash: false
           });
         } catch (err) {
+          const explain = describeApiError(err);
           invalidRows.push({
             query: row.normalizedTicker,
-            message: err?.payload?.message || err?.message || '查詢失敗'
+            message: explain
           });
           row.rowEl.querySelector('.ticker').style.borderColor = 'rgba(255, 90, 90, 0.9)';
+          setTickerError(row.rowEl, explain);
         }
       }
 
