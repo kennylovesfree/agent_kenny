@@ -47,6 +47,16 @@ class TwStockReturnServiceTests(unittest.TestCase):
         resolved = resolve_stock("00662", client)
         self.assertEqual(resolved.stock_id, "00662")
 
+    def test_resolve_stock_alphanumeric_id_success(self) -> None:
+        client = FakeClient(stock_info=[{"stock_id": "00865B", "stock_name": "國泰US短期公債"}], history=[])
+        resolved = resolve_stock("00865B", client)
+        self.assertEqual(resolved.stock_id, "00865B")
+
+    def test_resolve_stock_alphanumeric_id_normalized_success(self) -> None:
+        client = FakeClient(stock_info=[{"stock_id": "00865B", "stock_name": "國泰US短期公債"}], history=[])
+        resolved = resolve_stock("00865b.tw", client)
+        self.assertEqual(resolved.stock_id, "00865B")
+
     def test_resolve_stock_name_not_found(self) -> None:
         client = FakeClient(stock_info=[{"stock_id": "2330", "stock_name": "台積電"}], history=[])
         with self.assertRaises(StockQueryError) as ctx:

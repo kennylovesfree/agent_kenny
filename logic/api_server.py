@@ -1,6 +1,8 @@
 """HTTP API for querying annual return of Taiwan stocks."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,13 @@ from pydantic import BaseModel
 
 try:
     from .market_data_client import FinMindClient
+    from .advice_service import (
+        AdviceConfigError,
+        AdviceRateLimitError,
+        AdviceRequest,
+        AdviceUpstreamError,
+        generate_advice,
+    )
     from .tw_stock_return_service import (
         StockQueryError,
         UpstreamServiceError,
@@ -17,6 +26,13 @@ try:
     )
 except ImportError:  # pragma: no cover - support direct script-style imports
     from market_data_client import FinMindClient
+    from advice_service import (
+        AdviceConfigError,
+        AdviceRateLimitError,
+        AdviceRequest,
+        AdviceUpstreamError,
+        generate_advice,
+    )
     from tw_stock_return_service import (
         StockQueryError,
         UpstreamServiceError,
@@ -38,6 +54,7 @@ class ApiError(RuntimeError):
         self.details = details
 
 
+logger = logging.getLogger(__name__)
 app = FastAPI(title="TW Stock Annual Return API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -101,6 +118,8 @@ def get_annual_return(payload: AnnualReturnRequest) -> dict:
             details=None,
         ) from exc
 
+    logger.info("stock_resolve_success stock_id=%s query=%s", resolved.stock_id, payload.query)
+
     return {
         "query": payload.query,
         "resolved_stock_id": resolved.stock_id,
@@ -111,3 +130,38 @@ def get_annual_return(payload: AnnualReturnRequest) -> dict:
         "price_base": result.price_base,
         "annual_return": result.annual_return,
     }
+
+
+@app.post("/api/v1/advice/generate")
+def post_generate_advice(payload: AdviceRequest) -> dict:
+    try:
+        advice = generate_advice(payload)
+    except AdviceConfigError as exc:
+        raise ApiError(
+            status_code=503,
+            error_code="AI_CONFIG_ERROR",
+            message=str(exc),
+            details=None,
+        ) from exc
+    except AdviceRateLimitError as exc:
+        raise ApiError(
+            status_code=429,
+            error_code="AI_RATE_LIMITED",
+            message=str(exc),
+            details=None,
+        ) from exc
+    except AdviceUpstreamError as exc:
+        raise ApiError(
+            status_code=502,
+            error_code="AI_UPSTREAM_ERROR",
+            message=str(exc),
+            details=None,
+        ) from exc
+
+    logger.info(
+        "advice_success risk=%s model=%s latency_ms=%s",
+        advice.risk_level,
+        advice.model_meta.model,
+        advice.model_meta.latency_ms,
+    )
+    return advice.model_dump()

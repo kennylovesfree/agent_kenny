@@ -52,6 +52,13 @@ def _utcnow() -> datetime:
     return datetime.utcnow()
 
 
+def normalize_query(query: str) -> str:
+    cleaned = query.strip().upper()
+    if cleaned.endswith(".TW"):
+        cleaned = cleaned[:-3]
+    return cleaned
+
+
 def _get_stock_universe_cached(client: FinMindClient) -> list[dict[str, str]]:
     now = _utcnow()
     expires_at = _STOCK_INFO_CACHE["expires_at"]
@@ -66,7 +73,8 @@ def _get_stock_universe_cached(client: FinMindClient) -> list[dict[str, str]]:
 
 
 def resolve_stock(query: str, client: FinMindClient) -> ResolvedStock:
-    cleaned = query.strip()
+    raw_cleaned = query.strip()
+    cleaned = normalize_query(query)
     if not cleaned:
         raise StockQueryError("INVALID_QUERY", "query 不可為空白。")
 
@@ -77,17 +85,16 @@ def resolve_stock(query: str, client: FinMindClient) -> ResolvedStock:
     except FinMindApiError as exc:
         raise UpstreamServiceError(str(exc)) from exc
 
-    if cleaned.isdigit():
-        for row in universe:
-            if row["stock_id"] == cleaned:
-                return ResolvedStock(stock_id=row["stock_id"], stock_name=row["stock_name"])
-        raise StockQueryError("STOCK_NOT_FOUND", "查無此台股代碼。", {"query": cleaned})
+    for row in universe:
+        stock_id = str(row["stock_id"]).strip().upper()
+        if stock_id == cleaned:
+            return ResolvedStock(stock_id=row["stock_id"], stock_name=row["stock_name"])
 
-    matches = [row for row in universe if row["stock_name"] == cleaned]
+    matches = [row for row in universe if row["stock_name"] == raw_cleaned]
     dedup_by_stock_id: dict[str, dict[str, str]] = {m["stock_id"]: m for m in matches}
     unique_matches = list(dedup_by_stock_id.values())
     if not unique_matches:
-        raise StockQueryError("STOCK_NOT_FOUND", "查無此台股名稱。", {"query": cleaned})
+        raise StockQueryError("STOCK_NOT_FOUND", "查無此台股代碼或名稱。", {"query": cleaned})
     if len(unique_matches) > 1:
         raise StockQueryError(
             "AMBIGUOUS_NAME",

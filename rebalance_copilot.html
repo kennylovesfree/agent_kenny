@@ -624,9 +624,18 @@
     function hashCode(str) { let hash = 0; for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0; } return Math.abs(hash); }
     function seededRandom(seed) { const x = Math.sin(seed) * 10000; return x - Math.floor(x); }
     function mulberry32(a) { return function() { let t = a += 0x6D2B79F5; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+    function debounce(fn, waitMs) { let timer = null; return (...args) => { window.clearTimeout(timer); timer = window.setTimeout(() => fn(...args), waitMs); }; }
+
+    const RETURN_CACHE_TTL_MS = 5 * 60 * 1000;
+    const ADVICE_CACHE_TTL_MS = 2 * 60 * 1000;
+    const annualReturnCache = new Map();
+    const adviceCache = new Map();
+    let activeReturnController = null;
+    let activeAdviceController = null;
 
     function normalizeTicker(ticker) {
-      return (ticker || '').trim().toUpperCase();
+      const normalized = (ticker || '').trim().toUpperCase();
+      return normalized.endsWith('.TW') ? normalized.slice(0, -3) : normalized;
     }
 
     function estimateVolFromReturn(expectedReturn) {
@@ -648,7 +657,7 @@
         <select class="currency"><option value="USD" ${currency === 'USD' ? 'selected' : ''}>USD</option><option value="TWD" ${currency === 'TWD' ? 'selected' : ''}>TWD</option><option value="HKD" ${currency === 'HKD' ? 'selected' : ''}>HKD</option><option value="JPY" ${currency === 'JPY' ? 'selected' : ''}>JPY</option><option value="CNY" ${currency === 'CNY' ? 'selected' : ''}>CNY</option><option value="EUR" ${currency === 'EUR' ? 'selected' : ''}>EUR</option></select>
         <button type="button" class="remove">移除</button>`;
       row.querySelector('.remove').addEventListener('click', () => { row.remove(); calculate(); });
-      row.querySelectorAll('input, select').forEach(el => el.addEventListener('input', calculate));
+      row.querySelectorAll('input, select').forEach(el => el.addEventListener('input', scheduleCalculate));
       return row;
     }
 
@@ -657,19 +666,33 @@
     function getRows() {
       return Array.from(rowsEl.querySelectorAll('.table-row')).map(row => {
         const market = 'TW';
-        const ticker = row.querySelector('.ticker').value.trim();
+        const tickerRaw = row.querySelector('.ticker').value.trim();
         const amount = Math.max(0, Number(row.querySelector('.amount').value || 0));
         const currency = row.querySelector('.currency').value;
-        const normalizedTicker = normalizeTicker(ticker);
-        return { rowEl: row, market, ticker, normalizedTicker, amount, currency };
+        const normalizedTicker = normalizeTicker(tickerRaw);
+        return { rowEl: row, market, ticker: normalizedTicker, normalizedTicker, amount, currency };
       }).filter(r => r.ticker || r.amount > 0);
     }
 
-    async function fetchAnnualReturn(query) {
+    function getRowsForScenario(rows) {
+      return rows.map(row => ({
+        market: row.market || 'TW',
+        ticker: normalizeTicker(row.ticker || row.normalizedTicker || ''),
+        amount: Number(row.amount || 0),
+        currency: row.currency || 'TWD'
+      }));
+    }
+
+    async function fetchAnnualReturn(query, signal) {
+      const normalizedQuery = normalizeTicker(query);
+      const cached = annualReturnCache.get(normalizedQuery);
+      if (cached && Date.now() < cached.expiresAt) return cached.payload;
+
       const response = await fetch(`${API_BASE_URL}/api/v1/tw-stock/annual-return`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+        body: JSON.stringify({ query: normalizedQuery }),
+        signal
       });
       let payload = null;
       try { payload = await response.json(); } catch (_) { payload = null; }
@@ -679,7 +702,31 @@
         err.payload = payload;
         throw err;
       }
+      annualReturnCache.set(normalizedQuery, { payload, expiresAt: Date.now() + RETURN_CACHE_TTL_MS });
       return payload;
+    }
+
+    async function fetchAiAdvice(payload, signal) {
+      const cacheKey = JSON.stringify(payload);
+      const cached = adviceCache.get(cacheKey);
+      if (cached && Date.now() < cached.expiresAt) return cached.payload;
+
+      const response = await fetch(`${API_BASE_URL}/api/v1/advice/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal
+      });
+      let parsed = null;
+      try { parsed = await response.json(); } catch (_) { parsed = null; }
+      if (!response.ok) {
+        const err = new Error(parsed?.message || 'AI advice request failed.');
+        err.status = response.status;
+        err.payload = parsed;
+        throw err;
+      }
+      adviceCache.set(cacheKey, { payload: parsed, expiresAt: Date.now() + ADVICE_CACHE_TTL_MS });
+      return parsed;
     }
 
     function setTickerError(rowEl, message = '') {
@@ -739,7 +786,7 @@
       details.forEach(item => {
         const t = item.normalizedTicker;
         if (!t) { current.cash += item.weight; return; }
-        if (['BND','AGG','TLT','IEF','00679B.TW'].includes(t)) current.bond += item.weight;
+        if (['BND','AGG','TLT','IEF','00679B','00865B'].includes(t)) current.bond += item.weight;
         else if (['CASH','USD'].includes(t)) current.cash += item.weight;
         else current.stock += item.weight;
       });
@@ -756,23 +803,77 @@
       allocationRowsEl.innerHTML = rows.map(r => `<div class="table-row"><div>${r.bucket}</div><div>${(r.currentWeight*100).toFixed(1)}%</div><div>${(r.targetWeight*100).toFixed(1)}%</div><div>${r.delta >= 0 ? '+' : ''}${(r.delta*100).toFixed(1)}% (${r.rationale})</div></div>`).join('');
     }
 
-    function generateAdvice(details, years, portfolioReturn, portfolioVol, dd, profile, suggestions) {
+    function generateAdviceFallback(details, years, portfolioReturn, portfolioVol, dd, profile, suggestions) {
       const top = details.slice().sort((a,b)=>b.weight-a.weight)[0];
       const topLabel = top ? `${top.normalizedTicker || '現金'} (${(top.weight*100).toFixed(0)}%)` : '無';
       const riskWord = profile.riskLevel === 'conservative' ? '保守' : profile.riskLevel === 'aggressive' ? '積極' : '中性';
       return {
         summary: `依 ${profile.age} 歲、${profile.taxRegion} 稅務地區與 ${riskWord}風險等級，組合目前最大持倉為 ${topLabel}，模擬回撤 ${(dd*100).toFixed(1)}%。`,
-        bullets: [
-          `建議配置：股票 ${(suggestions[0].targetWeight*100).toFixed(0)}% / 債券 ${(suggestions[1].targetWeight*100).toFixed(0)}% / 現金 ${(suggestions[2].targetWeight*100).toFixed(0)}%。`,
-          years <= 3 ? '期限偏短，建議提高防禦資產比例。' : (years >= 15 ? '期限偏長，可維持成長配置並定期再平衡。' : '期限中等，維持股債平衡配置。'),
+        risk_level: portfolioVol >= 0.24 ? 'high' : (portfolioVol >= 0.15 ? 'medium' : 'low'),
+        actions: [
+          { title: '配置調整', reason: `股票 ${(suggestions[0].targetWeight*100).toFixed(0)}% / 債券 ${(suggestions[1].targetWeight*100).toFixed(0)}% / 現金 ${(suggestions[2].targetWeight*100).toFixed(0)}%。`, priority: 'high' },
+          { title: '期限匹配', reason: years <= 3 ? '期限偏短，建議提高防禦資產比例。' : (years >= 15 ? '期限偏長，可維持成長配置並定期再平衡。' : '期限中等，維持股債平衡配置。'), priority: 'medium' }
+        ],
+        watchouts: [
           portfolioVol >= 0.24 ? '波動偏高，請確認心理承受度與現金備援。' : '波動尚可，重點是紀律執行再平衡。',
           portfolioReturn >= 0.1 ? '預期報酬偏積極，需搭配風險管理。' : '預期報酬中性至保守，可依目標調整。'
-        ]
+        ],
+        disclaimer: '本建議僅供參考，不構成投資建議。',
+        model_meta: { provider: 'rule-engine', model: 'fallback-v1', latency_ms: 0 }
+      };
+    }
+
+    function renderExpertAdvice(advice, fallbackUsed) {
+      expertSummaryEl.textContent = advice.summary || '--';
+      const items = [];
+      if (fallbackUsed) items.push('<li>AI 暫時不可用，已切換規則建議。</li>');
+      (advice.actions || []).slice(0, 3).forEach(action => {
+        items.push(`<li>【${action.priority || 'medium'}】${action.title}：${action.reason}</li>`);
+      });
+      (advice.watchouts || []).forEach(msg => items.push(`<li>${msg}</li>`));
+      if (advice.disclaimer) items.push(`<li>${advice.disclaimer}</li>`);
+      expertListEl.innerHTML = items.join('');
+    }
+
+    function buildAdvicePayload(profile, details, suggestions, portfolioReturn, portfolioVol, dd, totalUsd) {
+      return {
+        profile: {
+          age: profile.age,
+          riskLevel: profile.riskLevel,
+          taxRegion: profile.taxRegion,
+          horizonYears: profile.horizonYears
+        },
+        portfolio: {
+          totalUsd,
+          expectedReturn: portfolioReturn,
+          volatility: portfolioVol,
+          maxDrawdown: dd,
+          positions: details.map(d => ({
+            ticker: d.normalizedTicker || '',
+            name: d.resolvedStockName || null,
+            weight: d.weight,
+            expectedReturn: d.expectedReturn,
+            volatility: d.volatility
+          })),
+          allocationSuggestion: suggestions.map(s => ({
+            bucket: s.bucket,
+            currentWeight: s.currentWeight,
+            targetWeight: s.targetWeight,
+            delta: s.delta
+          }))
+        },
+        locale: 'zh-TW'
       };
     }
 
     function seedFromScenario(profile, rows, years, displayCurrency, overrideState) {
-      const payload = JSON.stringify({ profile, rows: rows.map(r => ({...r, amount: Number(r.amount.toFixed(2))})), years, displayCurrency, overrideState });
+      const payload = JSON.stringify({
+        profile,
+        rows: getRowsForScenario(rows).map(r => ({ ...r, amount: Number(r.amount.toFixed(2)) })),
+        years,
+        displayCurrency,
+        overrideState
+      });
       return hashCode(payload) || 1;
     }
 
@@ -780,7 +881,7 @@
     function base64DecodeUnicode(str) { return decodeURIComponent(escape(atob(str))); }
 
     function serializeScenarioToQuery(profile, rows, years, displayCurrency, override) {
-      const data = { profile, rows, years, displayCurrency, override };
+      const data = { profile, rows: getRowsForScenario(rows), years, displayCurrency, override };
       return new URLSearchParams({ s: base64EncodeUnicode(JSON.stringify(data)) }).toString();
     }
 
@@ -792,8 +893,14 @@
     }
 
     let latestCalcRun = 0;
+    const scheduleCalculate = debounce(calculate, 250);
+
     async function calculate() {
       const runId = ++latestCalcRun;
+      if (activeReturnController) activeReturnController.abort();
+      if (activeAdviceController) activeAdviceController.abort();
+      activeReturnController = new AbortController();
+
       const years = Number(yearsEl.value || 1);
       const displayCurrency = displayCurrencyEl.value;
       const rows = getRows();
@@ -809,20 +916,18 @@
       let totalUsd = 0;
       const details = [];
       const invalidRows = [];
-      for (const row of rows) {
+      const detailTasks = rows.map(async (row) => {
         const fx = FX_RATES[row.currency] || 1;
         const amountUsd = row.amount * fx;
-        totalUsd += amountUsd;
         row.rowEl.querySelector('.ticker').style.borderColor = '';
         setTickerError(row.rowEl, '');
-        if (!row.normalizedTicker) {
-          details.push({ ...row, amountUsd, expectedReturn: 0.01, volatility: 0.02, isCash: true });
-          continue;
-        }
-        try {
-          const apiData = await fetchAnnualReturn(row.normalizedTicker);
-          const expectedReturn = Number(apiData.annual_return);
-          details.push({
+        if (!row.normalizedTicker) return { row, amountUsd, detail: { ...row, amountUsd, expectedReturn: 0.01, volatility: 0.02, isCash: true } };
+        const apiData = await fetchAnnualReturn(row.normalizedTicker, activeReturnController.signal);
+        const expectedReturn = Number(apiData.annual_return);
+        return {
+          row,
+          amountUsd,
+          detail: {
             ...row,
             amountUsd,
             normalizedTicker: apiData.resolved_stock_id,
@@ -830,17 +935,26 @@
             expectedReturn,
             volatility: estimateVolFromReturn(expectedReturn),
             isCash: false
-          });
-        } catch (err) {
-          const explain = describeApiError(err);
-          invalidRows.push({
-            query: row.normalizedTicker,
-            message: explain
-          });
-          row.rowEl.querySelector('.ticker').style.borderColor = 'rgba(255, 90, 90, 0.9)';
-          setTickerError(row.rowEl, explain);
+          }
+        };
+      });
+
+      const detailResults = await Promise.allSettled(detailTasks);
+      if (runId !== latestCalcRun || activeReturnController.signal.aborted) return;
+      detailResults.forEach((result, idx) => {
+        const row = rows[idx];
+        const fx = FX_RATES[row.currency] || 1;
+        totalUsd += row.amount * fx;
+        if (result.status === 'fulfilled') {
+          details.push(result.value.detail);
+          return;
         }
-      }
+        if (result.reason?.name === 'AbortError') return;
+        const explain = describeApiError(result.reason);
+        invalidRows.push({ query: row.normalizedTicker, message: explain });
+        row.rowEl.querySelector('.ticker').style.borderColor = 'rgba(255, 90, 90, 0.9)';
+        setTickerError(row.rowEl, explain);
+      });
 
       if (runId !== latestCalcRun) return;
 
@@ -882,13 +996,26 @@
       outputDDEl.textContent = `${(dd * 100).toFixed(2)}%`;
       outputTotalEl.textContent = formatCurrency(finalUsd / fxOut, displayCurrency);
       outputGainEl.textContent = formatCurrency(gainUsd / fxOut, displayCurrency);
-      drawChart(path.map(v => v / fxOut));
+      requestAnimationFrame(() => drawChart(path.map(v => v / fxOut)));
 
       const suggestions = suggestAllocation(details, profile);
       renderAllocation(suggestions);
-      const advice = generateAdvice(details, years, portfolioReturn, portfolioVol, dd, profile, suggestions);
-      expertSummaryEl.textContent = advice.summary;
-      expertListEl.innerHTML = advice.bullets.map(item => `<li>${item}</li>`).join('');
+      expertSummaryEl.textContent = 'AI 建議生成中...';
+      expertListEl.innerHTML = '<li>正在分析組合與風險。</li>';
+
+      let advice = generateAdviceFallback(details, years, portfolioReturn, portfolioVol, dd, profile, suggestions);
+      let fallbackUsed = true;
+      try {
+        activeAdviceController = new AbortController();
+        const aiPayload = buildAdvicePayload(profile, details, suggestions, portfolioReturn, portfolioVol, dd, totalUsd);
+        advice = await fetchAiAdvice(aiPayload, activeAdviceController.signal);
+        fallbackUsed = false;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+      }
+
+      if (runId !== latestCalcRun) return;
+      renderExpertAdvice(advice, fallbackUsed);
 
       scenarioIdEl.textContent = `Scenario: ${seed}`;
       const resolved = details.filter(d => d.resolvedStockName).map(d => `${d.normalizedTicker} ${d.resolvedStockName}`);
@@ -907,13 +1034,13 @@
       });
     }
 
-    yearsEl.addEventListener('input', () => { syncYearsFromRange(); calculate(); });
-    yearsNumberEl.addEventListener('input', () => { syncYearsFromNumber(); calculate(); });
+    yearsEl.addEventListener('input', () => { syncYearsFromRange(); scheduleCalculate(); });
+    yearsNumberEl.addEventListener('input', () => { syncYearsFromNumber(); scheduleCalculate(); });
     overrideToggleEl.addEventListener('change', () => { overrideEl.disabled = !overrideToggleEl.checked; calculate(); });
     document.getElementById('calcBtn').addEventListener('click', calculate);
     document.getElementById('shareBtn').addEventListener('click', copyShareUrl);
     document.getElementById('addRow').addEventListener('click', () => { addRow('', 0, 'TWD', 'TW'); calculate(); });
-    [displayCurrencyEl, overrideEl, ageEl, riskLevelEl, taxRegionEl].forEach(el => el.addEventListener('input', calculate));
+    [displayCurrencyEl, overrideEl, ageEl, riskLevelEl, taxRegionEl].forEach(el => el.addEventListener('input', scheduleCalculate));
 
     function init() {
       const scenario = hydrateScenarioFromQuery();
