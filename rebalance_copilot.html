@@ -628,10 +628,14 @@
 
     const RETURN_CACHE_TTL_MS = 5 * 60 * 1000;
     const ADVICE_CACHE_TTL_MS = 2 * 60 * 1000;
+    const AI_DEBOUNCE_MS = 1000;
+    const AI_COOLDOWN_MS = 10000;
+    const AI_RETRY_DELAY_MS = 6000;
     const annualReturnCache = new Map();
     const adviceCache = new Map();
     let activeReturnController = null;
     let activeAdviceController = null;
+    let lastAiRequestAt = 0;
 
     function normalizeTicker(ticker) {
       const normalized = (ticker || '').trim().toUpperCase();
@@ -711,14 +715,28 @@
       const cached = adviceCache.get(cacheKey);
       if (cached && Date.now() < cached.expiresAt) return cached.payload;
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/advice/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal
-      });
-      let parsed = null;
-      try { parsed = await response.json(); } catch (_) { parsed = null; }
+      async function runRequest() {
+        const response = await fetch(`${API_BASE_URL}/api/v1/advice/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal
+        });
+        let parsed = null;
+        try { parsed = await response.json(); } catch (_) { parsed = null; }
+        return { response, parsed };
+      }
+
+      let { response, parsed } = await runRequest();
+      if (response.status === 429) {
+        await new Promise(resolve => setTimeout(resolve, AI_RETRY_DELAY_MS));
+        if (signal?.aborted) {
+          const abortErr = new Error('AI request aborted');
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
+        ({ response, parsed } = await runRequest());
+      }
       if (!response.ok) {
         const err = new Error(parsed?.message || 'AI advice request failed.');
         err.status = response.status;
@@ -823,10 +841,11 @@
       };
     }
 
-    function renderExpertAdvice(advice, fallbackUsed) {
+    function renderExpertAdvice(advice, fallbackUsed, fallbackMessage = '') {
       expertSummaryEl.textContent = advice.summary || '--';
       const items = [];
       if (fallbackUsed) items.push('<li>AI 暫時不可用，已切換規則建議。</li>');
+      if (fallbackMessage) items.push(`<li>${fallbackMessage}</li>`);
       (advice.actions || []).slice(0, 3).forEach(action => {
         items.push(`<li>【${action.priority || 'medium'}】${action.title}：${action.reason}</li>`);
       });
@@ -893,9 +912,11 @@
     }
 
     let latestCalcRun = 0;
-    const scheduleCalculate = debounce(calculate, 250);
+    const scheduleCalculate = debounce(() => calculate({ includeAi: false }), AI_DEBOUNCE_MS);
 
-    async function calculate() {
+    async function calculate(options = {}) {
+      const includeAi = Boolean(options.includeAi);
+      const forceAi = Boolean(options.forceAi);
       const runId = ++latestCalcRun;
       if (activeReturnController) activeReturnController.abort();
       if (activeAdviceController) activeAdviceController.abort();
@@ -1000,22 +1021,33 @@
 
       const suggestions = suggestAllocation(details, profile);
       renderAllocation(suggestions);
-      expertSummaryEl.textContent = 'AI 建議生成中...';
-      expertListEl.innerHTML = '<li>正在分析組合與風險。</li>';
-
       let advice = generateAdviceFallback(details, years, portfolioReturn, portfolioVol, dd, profile, suggestions);
       let fallbackUsed = true;
-      try {
-        activeAdviceController = new AbortController();
-        const aiPayload = buildAdvicePayload(profile, details, suggestions, portfolioReturn, portfolioVol, dd, totalUsd);
-        advice = await fetchAiAdvice(aiPayload, activeAdviceController.signal);
-        fallbackUsed = false;
-      } catch (err) {
-        if (err?.name === 'AbortError') return;
+      let fallbackMessage = '';
+      const underCooldown = (Date.now() - lastAiRequestAt) < AI_COOLDOWN_MS;
+
+      if (!includeAi) {
+        fallbackMessage = '已更新試算；按「更新預估結果」產生 AI 建議。';
+      } else if (underCooldown && !forceAi) {
+        fallbackMessage = 'AI 建議冷卻中，請稍後再試。';
+      } else {
+        expertSummaryEl.textContent = 'AI 建議生成中...';
+        expertListEl.innerHTML = '<li>正在分析組合與風險。</li>';
+        try {
+          activeAdviceController = new AbortController();
+          const aiPayload = buildAdvicePayload(profile, details, suggestions, portfolioReturn, portfolioVol, dd, totalUsd);
+          advice = await fetchAiAdvice(aiPayload, activeAdviceController.signal);
+          fallbackUsed = false;
+          lastAiRequestAt = Date.now();
+        } catch (err) {
+          if (err?.name === 'AbortError') return;
+          if (err?.status === 429) fallbackMessage = 'AI 目前流量較高，已自動重試一次；請稍後再按更新。';
+          else fallbackMessage = 'AI 服務暫時不可用，請稍後再試。';
+        }
       }
 
       if (runId !== latestCalcRun) return;
-      renderExpertAdvice(advice, fallbackUsed);
+      renderExpertAdvice(advice, fallbackUsed, fallbackMessage);
 
       scenarioIdEl.textContent = `Scenario: ${seed}`;
       const resolved = details.filter(d => d.resolvedStockName).map(d => `${d.normalizedTicker} ${d.resolvedStockName}`);
@@ -1036,10 +1068,10 @@
 
     yearsEl.addEventListener('input', () => { syncYearsFromRange(); scheduleCalculate(); });
     yearsNumberEl.addEventListener('input', () => { syncYearsFromNumber(); scheduleCalculate(); });
-    overrideToggleEl.addEventListener('change', () => { overrideEl.disabled = !overrideToggleEl.checked; calculate(); });
-    document.getElementById('calcBtn').addEventListener('click', calculate);
+    overrideToggleEl.addEventListener('change', () => { overrideEl.disabled = !overrideToggleEl.checked; calculate({ includeAi: false }); });
+    document.getElementById('calcBtn').addEventListener('click', () => calculate({ includeAi: true, forceAi: true }));
     document.getElementById('shareBtn').addEventListener('click', copyShareUrl);
-    document.getElementById('addRow').addEventListener('click', () => { addRow('', 0, 'TWD', 'TW'); calculate(); });
+    document.getElementById('addRow').addEventListener('click', () => { addRow('', 0, 'TWD', 'TW'); calculate({ includeAi: false }); });
     [displayCurrencyEl, overrideEl, ageEl, riskLevelEl, taxRegionEl].forEach(el => el.addEventListener('input', scheduleCalculate));
 
     function init() {
@@ -1063,7 +1095,7 @@
         addRow('2454', 40000, 'TWD', 'TW');
         syncYearsFromRange();
       }
-      calculate();
+      calculate({ includeAi: false });
     }
 
     init();
