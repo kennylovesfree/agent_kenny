@@ -76,6 +76,21 @@ class TwStockReturnServiceTests(unittest.TestCase):
         self.assertEqual(result.price_latest, 600.0)
         self.assertAlmostEqual(result.annual_return, 0.2, places=6)
 
+    def test_compute_annual_return_uses_multi_period_smoothing(self) -> None:
+        client = FakeClient(
+            stock_info=[],
+            history=[
+                PricePoint(data_id="2330", date="2021-02-07", close=100.0),
+                PricePoint(data_id="2330", date="2023-02-07", close=120.0),
+                PricePoint(data_id="2330", date="2025-02-07", close=150.0),
+                PricePoint(data_id="2330", date="2026-02-07", close=180.0),
+            ],
+        )
+        result = compute_annual_return("2330", client)
+        # 1Y only would be 20%. Smoothed 1Y/3Y/5Y should be lower.
+        self.assertLess(result.annual_return, 0.2)
+        self.assertAlmostEqual(result.annual_return, 0.176, places=2)
+
     def test_compute_annual_return_adjusts_for_split(self) -> None:
         class SplitEvent:
             def __init__(self, date: str, before_price: float, after_price: float) -> None:

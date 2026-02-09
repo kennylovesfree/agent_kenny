@@ -46,6 +46,7 @@ class AnnualReturnResult:
 _CACHE_TTL_SECONDS = 3600
 _STOCK_INFO_CACHE: dict[str, object] = {"expires_at": datetime.min, "rows": []}
 _ANNUAL_RETURN_CACHE: dict[tuple[str, str], tuple[datetime, AnnualReturnResult]] = {}
+_RETURN_SMOOTHING_WINDOWS: tuple[tuple[int, float], ...] = ((1, 0.6), (3, 0.3), (5, 0.1))
 
 
 def _utcnow() -> datetime:
@@ -111,7 +112,8 @@ def compute_annual_return(stock_id: str, client: FinMindClient) -> AnnualReturnR
     if cached and _utcnow() < cached[0]:
         return cached[1]
 
-    start_date = (today - timedelta(days=400)).isoformat()
+    # Pull enough history for 5Y smoothing with a small buffer for missing trading days.
+    start_date = (today - timedelta(days=2200)).isoformat()
     end_date = today.isoformat()
     target_base_date = today - timedelta(days=365)
 
@@ -145,7 +147,7 @@ def compute_annual_return(stock_id: str, client: FinMindClient) -> AnnualReturnR
     if adjusted_base <= 0:
         raise StockQueryError("NO_PRICE_DATA", "調整後基準收盤價異常，無法計算報酬率。", {"stock_id": stock_id})
 
-    annual_return = (latest.close / adjusted_base) - 1.0
+    annual_return = _compute_smoothed_annual_return(client, stock_id, history, latest, adjusted_base)
     result = AnnualReturnResult(
         price_date_latest=latest.date,
         price_latest=latest.close,
@@ -201,3 +203,33 @@ def _adjust_base_for_split(client: FinMindClient, stock_id: str, base: PricePoin
             continue
         factor *= event.after_price / event.before_price
     return base.close * factor
+
+
+def _compute_smoothed_annual_return(
+    client: FinMindClient,
+    stock_id: str,
+    history: list[PricePoint],
+    latest: PricePoint,
+    fallback_adjusted_base: float,
+) -> float:
+    latest_date = date.fromisoformat(latest.date)
+    weighted_sum = 0.0
+    weight_sum = 0.0
+
+    for years, weight in _RETURN_SMOOTHING_WINDOWS:
+        target_date = latest_date - timedelta(days=365 * years)
+        base_point = _find_base_price(history, target_date)
+        if base_point is None or base_point.close <= 0:
+            continue
+        adjusted_base = _adjust_base_for_split(client, stock_id, base_point, latest)
+        if adjusted_base <= 0:
+            continue
+        horizon_return = (latest.close / adjusted_base) ** (1.0 / years) - 1.0
+        weighted_sum += horizon_return * weight
+        weight_sum += weight
+
+    if weight_sum > 0:
+        return weighted_sum / weight_sum
+
+    # Last fallback: keep previous 1Y-like behavior.
+    return (latest.close / fallback_adjusted_base) - 1.0
