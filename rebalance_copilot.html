@@ -507,7 +507,8 @@
             </div>
           </div>
           <div class="actions">
-            <button id="calcBtn">更新預估結果</button>
+            <button id="calcBtn">更新試算結果</button>
+            <button id="aiBtn" type="button">查看 AI 建議</button>
             <button id="shareBtn" type="button">複製分享連結</button>
             <label class="chip" style="cursor:pointer;">
               <input id="overrideToggle" type="checkbox" style="margin:0;" />
@@ -566,7 +567,7 @@
       <section class="card expert-card">
         <h2>專家建議（個性化）</h2>
         <div class="expert-badge">Expert Insight</div>
-        <p class="expert-summary" id="expertSummary">--</p>
+        <p class="expert-summary" id="expertSummary">填寫完股票與金額後，點擊「查看 AI 建議」。</p>
         <ul class="expert-list" id="expertList"></ul>
       </section>
     </main>
@@ -612,6 +613,7 @@
     const assumptionNoteEl = document.getElementById('assumptionNote');
     const expertSummaryEl = document.getElementById('expertSummary');
     const expertListEl = document.getElementById('expertList');
+    const aiBtnEl = document.getElementById('aiBtn');
 
     const canvas = document.getElementById('trend');
     const ctx = canvas.getContext('2d');
@@ -636,6 +638,8 @@
     let activeReturnController = null;
     let activeAdviceController = null;
     let lastAiRequestAt = 0;
+    let lastAiPayloadKey = '';
+    let aiAdviceStale = false;
 
     function normalizeTicker(ticker) {
       const normalized = (ticker || '').trim().toUpperCase();
@@ -713,7 +717,7 @@
     async function fetchAiAdvice(payload, signal) {
       const cacheKey = JSON.stringify(payload);
       const cached = adviceCache.get(cacheKey);
-      if (cached && Date.now() < cached.expiresAt) return cached.payload;
+      if (cached && Date.now() < cached.expiresAt) return { payload: cached.payload, cacheHit: true };
 
       async function runRequest() {
         const response = await fetch(`${API_BASE_URL}/api/v1/advice/generate`, {
@@ -744,7 +748,17 @@
         throw err;
       }
       adviceCache.set(cacheKey, { payload: parsed, expiresAt: Date.now() + ADVICE_CACHE_TTL_MS });
-      return parsed;
+      return { payload: parsed, cacheHit: false };
+    }
+
+    function formatTimestamp(ts) {
+      const date = new Date(ts);
+      return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+    }
+
+    function setAiButtonLoading(isLoading) {
+      aiBtnEl.disabled = isLoading;
+      aiBtnEl.textContent = isLoading ? 'AI 生成中...' : '查看 AI 建議';
     }
 
     function setTickerError(rowEl, message = '') {
@@ -841,11 +855,13 @@
       };
     }
 
-    function renderExpertAdvice(advice, fallbackUsed, fallbackMessage = '') {
+    function renderExpertAdvice(advice, fallbackUsed, fallbackMessage = '', metadata = {}) {
       expertSummaryEl.textContent = advice.summary || '--';
       const items = [];
       if (fallbackUsed) items.push('<li>AI 暫時不可用，已切換規則建議。</li>');
       if (fallbackMessage) items.push(`<li>${fallbackMessage}</li>`);
+      if (!fallbackUsed && metadata.cacheHit) items.push('<li>輸入未變更，已復用上次 AI 建議。</li>');
+      if (!fallbackUsed && metadata.generatedAt) items.push(`<li>建議生成時間：${formatTimestamp(metadata.generatedAt)}</li>`);
       (advice.actions || []).slice(0, 3).forEach(action => {
         items.push(`<li>【${action.priority || 'medium'}】${action.title}：${action.reason}</li>`);
       });
@@ -1021,33 +1037,48 @@
 
       const suggestions = suggestAllocation(details, profile);
       renderAllocation(suggestions);
+      const aiPayload = buildAdvicePayload(profile, details, suggestions, portfolioReturn, portfolioVol, dd, totalUsd);
+      const aiPayloadKey = JSON.stringify(aiPayload);
+      const inputChangedSinceLastAi = lastAiPayloadKey && lastAiPayloadKey !== aiPayloadKey;
+      if (inputChangedSinceLastAi) aiAdviceStale = true;
+
       let advice = generateAdviceFallback(details, years, portfolioReturn, portfolioVol, dd, profile, suggestions);
       let fallbackUsed = true;
       let fallbackMessage = '';
       const underCooldown = (Date.now() - lastAiRequestAt) < AI_COOLDOWN_MS;
+      const adviceMeta = { cacheHit: false, generatedAt: null };
 
       if (!includeAi) {
-        fallbackMessage = '已更新試算；按「更新預估結果」產生 AI 建議。';
+        fallbackMessage = aiAdviceStale
+          ? '輸入已變更，請按「查看 AI 建議」重新生成。'
+          : '已更新試算；按「查看 AI 建議」產生 AI 建議。';
       } else if (underCooldown && !forceAi) {
         fallbackMessage = 'AI 建議冷卻中，請稍後再試。';
       } else {
+        setAiButtonLoading(true);
         expertSummaryEl.textContent = 'AI 建議生成中...';
         expertListEl.innerHTML = '<li>正在分析組合與風險。</li>';
         try {
           activeAdviceController = new AbortController();
-          const aiPayload = buildAdvicePayload(profile, details, suggestions, portfolioReturn, portfolioVol, dd, totalUsd);
-          advice = await fetchAiAdvice(aiPayload, activeAdviceController.signal);
+          const aiResult = await fetchAiAdvice(aiPayload, activeAdviceController.signal);
+          advice = aiResult.payload;
           fallbackUsed = false;
           lastAiRequestAt = Date.now();
+          adviceMeta.generatedAt = lastAiRequestAt;
+          adviceMeta.cacheHit = aiResult.cacheHit;
+          lastAiPayloadKey = aiPayloadKey;
+          aiAdviceStale = false;
         } catch (err) {
           if (err?.name === 'AbortError') return;
           if (err?.status === 429) fallbackMessage = 'AI 目前流量較高，已自動重試一次；請稍後再按更新。';
           else fallbackMessage = 'AI 服務暫時不可用，請稍後再試。';
+        } finally {
+          if (runId === latestCalcRun) setAiButtonLoading(false);
         }
       }
 
       if (runId !== latestCalcRun) return;
-      renderExpertAdvice(advice, fallbackUsed, fallbackMessage);
+      renderExpertAdvice(advice, fallbackUsed, fallbackMessage, adviceMeta);
 
       scenarioIdEl.textContent = `Scenario: ${seed}`;
       const resolved = details.filter(d => d.resolvedStockName).map(d => `${d.normalizedTicker} ${d.resolvedStockName}`);
@@ -1069,7 +1100,8 @@
     yearsEl.addEventListener('input', () => { syncYearsFromRange(); scheduleCalculate(); });
     yearsNumberEl.addEventListener('input', () => { syncYearsFromNumber(); scheduleCalculate(); });
     overrideToggleEl.addEventListener('change', () => { overrideEl.disabled = !overrideToggleEl.checked; calculate({ includeAi: false }); });
-    document.getElementById('calcBtn').addEventListener('click', () => calculate({ includeAi: true, forceAi: true }));
+    document.getElementById('calcBtn').addEventListener('click', () => calculate({ includeAi: false }));
+    aiBtnEl.addEventListener('click', () => calculate({ includeAi: true, forceAi: true }));
     document.getElementById('shareBtn').addEventListener('click', copyShareUrl);
     document.getElementById('addRow').addEventListener('click', () => { addRow('', 0, 'TWD', 'TW'); calculate({ includeAi: false }); });
     [displayCurrencyEl, overrideEl, ageEl, riskLevelEl, taxRegionEl].forEach(el => el.addEventListener('input', scheduleCalculate));
