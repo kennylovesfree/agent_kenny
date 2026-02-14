@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from logic.market_data_client import FinMindApiError, PricePoint
 from logic import tw_stock_return_service as service_module
+from logic import us_stock_return_service as us_service_module
 
 try:
     from fastapi.testclient import TestClient
@@ -45,6 +46,7 @@ class ApiServerTests(unittest.TestCase):
         service_module._STOCK_INFO_CACHE["rows"] = []
         service_module._STOCK_INFO_CACHE["expires_at"] = service_module.datetime.min
         service_module._ANNUAL_RETURN_CACHE.clear()
+        us_service_module._ANNUAL_RETURN_CACHE.clear()
         self.client = TestClient(app)
 
     def test_api_annual_return_success(self) -> None:
@@ -154,6 +156,29 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         body = response.json()
         self.assertEqual(body["error_code"], "AI_CONFIG_ERROR")
+
+    def test_api_us_annual_return_success(self) -> None:
+        fake_result = SimpleNamespace(
+            price_date_latest="2026-02-13",
+            price_latest=200.0,
+            price_date_base="2025-02-13",
+            price_base=180.0,
+            annual_return=0.111111,
+        )
+        with patch("logic.api_server.compute_us_annual_return", return_value=("AAPL", fake_result)):
+            response = self.client.post("/api/v1/us-stock/annual-return", json={"query": "aapl.us"})
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["resolved_stock_id"], "AAPL")
+        self.assertAlmostEqual(body["annual_return"], 0.111111, places=6)
+
+    def test_api_us_invalid_query_returns_422_shape(self) -> None:
+        response = self.client.post("/api/v1/us-stock/annual-return", json={"query": "@@@"})
+        self.assertEqual(response.status_code, 422)
+        body = response.json()
+        self.assertEqual(body["error_code"], "INVALID_QUERY")
+        self.assertIn("message", body)
+        self.assertIn("details", body)
 
 
 if __name__ == "__main__":

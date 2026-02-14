@@ -1,4 +1,4 @@
-"""HTTP API for querying annual return of Taiwan stocks."""
+"""HTTP API for querying annual return of Taiwan and US stocks."""
 from __future__ import annotations
 
 import logging
@@ -19,10 +19,15 @@ try:
         generate_advice,
     )
     from .tw_stock_return_service import (
-        StockQueryError,
-        UpstreamServiceError,
-        compute_annual_return,
+        StockQueryError as TwStockQueryError,
+        UpstreamServiceError as TwUpstreamServiceError,
+        compute_annual_return as compute_tw_annual_return,
         resolve_stock,
+    )
+    from .us_stock_return_service import (
+        StockQueryError as UsStockQueryError,
+        UpstreamServiceError as UsUpstreamServiceError,
+        compute_annual_return as compute_us_annual_return,
     )
 except ImportError:  # pragma: no cover - support direct script-style imports
     from market_data_client import FinMindClient
@@ -34,10 +39,15 @@ except ImportError:  # pragma: no cover - support direct script-style imports
         generate_advice,
     )
     from tw_stock_return_service import (
-        StockQueryError,
-        UpstreamServiceError,
-        compute_annual_return,
+        StockQueryError as TwStockQueryError,
+        UpstreamServiceError as TwUpstreamServiceError,
+        compute_annual_return as compute_tw_annual_return,
         resolve_stock,
+    )
+    from us_stock_return_service import (
+        StockQueryError as UsStockQueryError,
+        UpstreamServiceError as UsUpstreamServiceError,
+        compute_annual_return as compute_us_annual_return,
     )
 
 
@@ -55,7 +65,7 @@ class ApiError(RuntimeError):
 
 
 logger = logging.getLogger(__name__)
-app = FastAPI(title="TW Stock Annual Return API", version="1.0.0")
+app = FastAPI(title="Stock Annual Return API", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -102,15 +112,15 @@ def get_annual_return(payload: AnnualReturnRequest) -> dict:
 
     try:
         resolved = resolve_stock(payload.query, client)
-        result = compute_annual_return(resolved.stock_id, client)
-    except StockQueryError as exc:
+        result = compute_tw_annual_return(resolved.stock_id, client)
+    except TwStockQueryError as exc:
         raise ApiError(
             status_code=422,
             error_code=exc.error_code,
             message=exc.message,
             details=exc.details,
         ) from exc
-    except UpstreamServiceError as exc:
+    except TwUpstreamServiceError as exc:
         raise ApiError(
             status_code=502,
             error_code="UPSTREAM_ERROR",
@@ -124,6 +134,39 @@ def get_annual_return(payload: AnnualReturnRequest) -> dict:
         "query": payload.query,
         "resolved_stock_id": resolved.stock_id,
         "resolved_stock_name": resolved.stock_name,
+        "price_date_latest": result.price_date_latest,
+        "price_latest": result.price_latest,
+        "price_date_base": result.price_date_base,
+        "price_base": result.price_base,
+        "annual_return": result.annual_return,
+    }
+
+
+@app.post("/api/v1/us-stock/annual-return")
+def get_us_annual_return(payload: AnnualReturnRequest) -> dict:
+    try:
+        resolved_ticker, result = compute_us_annual_return(payload.query)
+    except UsStockQueryError as exc:
+        raise ApiError(
+            status_code=422,
+            error_code=exc.error_code,
+            message=exc.message,
+            details=exc.details,
+        ) from exc
+    except UsUpstreamServiceError as exc:
+        raise ApiError(
+            status_code=502,
+            error_code="UPSTREAM_ERROR",
+            message=exc.message,
+            details=None,
+        ) from exc
+
+    logger.info("us_stock_resolve_success ticker=%s query=%s", resolved_ticker, payload.query)
+
+    return {
+        "query": payload.query,
+        "resolved_stock_id": resolved_ticker,
+        "resolved_stock_name": resolved_ticker,
         "price_date_latest": result.price_date_latest,
         "price_latest": result.price_latest,
         "price_date_base": result.price_date_base,

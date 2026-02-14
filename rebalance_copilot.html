@@ -427,13 +427,13 @@
         <div class="brand-mark">R</div>
         <div>Rebalance Copilot</div>
       </div>
-      <span class="chip" id="universeLabel">Universe: Taiwan stocks (FinMind API)</span>
+      <span class="chip" id="universeLabel">Universe: Taiwan + US stocks (API)</span>
     </header>
 
     <section class="hero">
       <span class="eyebrow">Portfolio Forecast Studio</span>
-      <h1>輸入台股代碼或名稱，快速預估年化收益、波動率與資產成長曲線。</h1>
-      <p class="subtitle">此頁面會即時呼叫台股 API 取得近一年報酬。回測與未來績效皆非保證，請勿視為投資建議。</p>
+      <h1>輸入台股或美股代碼，快速預估年化收益、波動率與資產成長曲線。</h1>
+      <p class="subtitle">此頁面會即時呼叫市場資料 API 取得近一年報酬。回測與未來績效皆非保證，請勿視為投資建議。</p>
     </section>
 
     <main>
@@ -573,7 +573,7 @@
     </main>
 
     <footer>
-      台股模式：年化報酬率由 API 提供（FinMind），美股目前暫不開放。
+      年化報酬率來源：台股使用 FinMind API；美股使用 Stooq 日線資料。
     </footer>
   </div>
 
@@ -641,9 +641,11 @@
     let lastAiPayloadKey = '';
     let aiAdviceStale = false;
 
-    function normalizeTicker(ticker) {
+    function normalizeTicker(ticker, market = 'TW') {
       const normalized = (ticker || '').trim().toUpperCase();
-      return normalized.endsWith('.TW') ? normalized.slice(0, -3) : normalized;
+      if (market === 'TW') return normalized.endsWith('.TW') ? normalized.slice(0, -3) : normalized;
+      if (market === 'US') return normalized.endsWith('.US') ? normalized.slice(0, -3) : normalized;
+      return normalized;
     }
 
     function estimateVolFromReturn(expectedReturn) {
@@ -652,19 +654,29 @@
       return Math.max(0.1, Math.min(0.45, baseline + scaled));
     }
 
+    function getTickerPlaceholder(market) {
+      return market === 'US' ? '例：AAPL 或 MSFT' : '例：2330 或 台積電';
+    }
+
     function createRow(ticker = '', amount = 0, currency = 'TWD', market = 'TW') {
       const row = document.createElement('div');
       row.className = 'table-row';
       row.innerHTML = `
-        <select class="market" disabled><option value="TW" selected>台股 TW</option></select>
+        <select class="market">
+          <option value="TW" ${market === 'TW' ? 'selected' : ''}>台股 TW</option>
+          <option value="US" ${market === 'US' ? 'selected' : ''}>美股 US</option>
+        </select>
         <div class="ticker-cell">
-          <input class="ticker" type="text" placeholder="例：2330 或 台積電" value="${ticker}" />
+          <input class="ticker" type="text" placeholder="${getTickerPlaceholder(market)}" value="${ticker}" />
           <div class="ticker-error"></div>
         </div>
         <input class="amount" type="number" min="0" step="100" value="${amount}" />
         <select class="currency"><option value="USD" ${currency === 'USD' ? 'selected' : ''}>USD</option><option value="TWD" ${currency === 'TWD' ? 'selected' : ''}>TWD</option><option value="HKD" ${currency === 'HKD' ? 'selected' : ''}>HKD</option><option value="JPY" ${currency === 'JPY' ? 'selected' : ''}>JPY</option><option value="CNY" ${currency === 'CNY' ? 'selected' : ''}>CNY</option><option value="EUR" ${currency === 'EUR' ? 'selected' : ''}>EUR</option></select>
         <button type="button" class="remove">移除</button>`;
       row.querySelector('.remove').addEventListener('click', () => { row.remove(); calculate(); });
+      row.querySelector('.market').addEventListener('input', (event) => {
+        row.querySelector('.ticker').placeholder = getTickerPlaceholder(event.target.value);
+      });
       row.querySelectorAll('input, select').forEach(el => el.addEventListener('input', scheduleCalculate));
       return row;
     }
@@ -673,11 +685,11 @@
 
     function getRows() {
       return Array.from(rowsEl.querySelectorAll('.table-row')).map(row => {
-        const market = 'TW';
+        const market = row.querySelector('.market').value || 'TW';
         const tickerRaw = row.querySelector('.ticker').value.trim();
         const amount = Math.max(0, Number(row.querySelector('.amount').value || 0));
         const currency = row.querySelector('.currency').value;
-        const normalizedTicker = normalizeTicker(tickerRaw);
+        const normalizedTicker = normalizeTicker(tickerRaw, market);
         return { rowEl: row, market, ticker: normalizedTicker, normalizedTicker, amount, currency };
       }).filter(r => r.ticker || r.amount > 0);
     }
@@ -685,18 +697,23 @@
     function getRowsForScenario(rows) {
       return rows.map(row => ({
         market: row.market || 'TW',
-        ticker: normalizeTicker(row.ticker || row.normalizedTicker || ''),
+        ticker: normalizeTicker(row.ticker || row.normalizedTicker || '', row.market || 'TW'),
         amount: Number(row.amount || 0),
         currency: row.currency || 'TWD'
       }));
     }
 
-    async function fetchAnnualReturn(query, signal) {
-      const normalizedQuery = normalizeTicker(query);
-      const cached = annualReturnCache.get(normalizedQuery);
+    async function fetchAnnualReturn(market, query, signal) {
+      const normalizedMarket = market || 'TW';
+      const normalizedQuery = normalizeTicker(query, normalizedMarket);
+      const cacheKey = `${normalizedMarket}:${normalizedQuery}`;
+      const cached = annualReturnCache.get(cacheKey);
       if (cached && Date.now() < cached.expiresAt) return cached.payload;
 
-      const response = await fetch(`${API_BASE_URL}/api/v1/tw-stock/annual-return`, {
+      const endpoint = normalizedMarket === 'US'
+        ? '/api/v1/us-stock/annual-return'
+        : '/api/v1/tw-stock/annual-return';
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: normalizedQuery }),
@@ -710,7 +727,7 @@
         err.payload = payload;
         throw err;
       }
-      annualReturnCache.set(normalizedQuery, { payload, expiresAt: Date.now() + RETURN_CACHE_TTL_MS });
+      annualReturnCache.set(cacheKey, { payload, expiresAt: Date.now() + RETURN_CACHE_TTL_MS });
       return payload;
     }
 
@@ -766,9 +783,9 @@
       if (errorEl) errorEl.textContent = message || '';
     }
 
-    function describeApiError(err) {
+    function describeApiError(err, market = 'TW') {
       const code = err?.payload?.error_code || '';
-      if (code === 'STOCK_NOT_FOUND') return '查無此台股代碼或名稱。';
+      if (code === 'STOCK_NOT_FOUND') return market === 'US' ? '查無此美股代碼。' : '查無此台股代碼或名稱。';
       if (code === 'AMBIGUOUS_NAME') return '名稱對應多筆，請改用代碼。';
       if (code === 'INVALID_QUERY') return '輸入格式不正確。';
       if (code === 'NO_PRICE_DATA') return '查無可用價格資料。';
@@ -959,7 +976,7 @@
         row.rowEl.querySelector('.ticker').style.borderColor = '';
         setTickerError(row.rowEl, '');
         if (!row.normalizedTicker) return { row, amountUsd, detail: { ...row, amountUsd, expectedReturn: 0.01, volatility: 0.02, isCash: true } };
-        const apiData = await fetchAnnualReturn(row.normalizedTicker, activeReturnController.signal);
+        const apiData = await fetchAnnualReturn(row.market, row.normalizedTicker, activeReturnController.signal);
         const expectedReturn = Number(apiData.annual_return);
         return {
           row,
@@ -987,8 +1004,8 @@
           return;
         }
         if (result.reason?.name === 'AbortError') return;
-        const explain = describeApiError(result.reason);
-        invalidRows.push({ query: row.normalizedTicker, message: explain });
+        const explain = describeApiError(result.reason, row.market);
+        invalidRows.push({ query: `${row.market}:${row.normalizedTicker}`, message: explain });
         row.rowEl.querySelector('.ticker').style.borderColor = 'rgba(255, 90, 90, 0.9)';
         setTickerError(row.rowEl, explain);
       });
@@ -1083,7 +1100,7 @@
       scenarioIdEl.textContent = `Scenario: ${seed}`;
       const resolved = details.filter(d => d.resolvedStockName).map(d => `${d.normalizedTicker} ${d.resolvedStockName}`);
       const resolvedNote = resolved.length ? `已解析：${resolved.join('、')}` : '無股票代碼輸入。';
-      assumptionNoteEl.textContent = `估算依據：台股 API 近一年報酬 + ${profile.riskLevel}風險模型 + ${profile.taxRegion}稅務地區假設 + 靜態匯率；${resolvedNote}`;
+      assumptionNoteEl.textContent = `估算依據：台股(FinMind) / 美股(Stooq) 近一年報酬 + ${profile.riskLevel}風險模型 + ${profile.taxRegion}稅務地區假設 + 靜態匯率；${resolvedNote}`;
 
       const query = serializeScenarioToQuery(profile, rows, years, displayCurrency, overrideState);
       history.replaceState(null, '', `${location.pathname}?${query}`);
@@ -1120,10 +1137,10 @@
         overrideToggleEl.checked = Boolean(scenario.override?.enabled);
         overrideEl.disabled = !overrideToggleEl.checked;
         overrideEl.value = scenario.override?.value ?? 8.0;
-        (scenario.rows || []).forEach(r => addRow(r.ticker || '', r.amount || 0, r.currency || 'TWD', 'TW'));
+        (scenario.rows || []).forEach(r => addRow(r.ticker || '', r.amount || 0, r.currency || 'TWD', r.market || 'TW'));
       } else {
         addRow('2330', 100000, 'TWD', 'TW');
-        addRow('0050', 60000, 'TWD', 'TW');
+        addRow('AAPL', 2000, 'USD', 'US');
         addRow('2454', 40000, 'TWD', 'TW');
         syncYearsFromRange();
       }
